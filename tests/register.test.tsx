@@ -14,21 +14,32 @@ const PANE = {
 const settle = () => new Promise(r => setTimeout(r, 30))
 const SELF_PROBE = '100\tclaude\tS1\t/home/u/p\t/dev/pts/1\tclaude\tse-test\t3\t\t\t\n'
 const SELF_REG = '{"pid":100,"sessionId":"self","cwd":"/home/u/p","status":"busy","name":"explorer","procProcess":"x","procStart":"S1"}'
-const view = (o: object = {}) => ({ top: '/home/u/p', open: [], cur: '', more: [], hidden: false, ...o })
+const view = (o: object = {}) => ({ top: '/home/u/p', open: [], cur: '', more: [], hidden: false, start: 0, ...o })
 const emptyData = { live: [], past: {}, lists: {}, git: {} }
 
 // 환경과 저장된 값을 준비하고 패널을 그린다
 async function setup($: any, on: any, wo: Partial<World> = {}, v: object = view(), d: object = emptyData) {
   const w = world(on, { dirs: { '/': [{ name: 'home', kind: 'dir' }], '/home': [{ name: 'u', kind: 'dir' }], '/home/u': [{ name: 'p', kind: 'dir' }], '/home/u/p': [] }, ...wo })
   const mem = memState(on)
-  mem.put('view', 'view-1', v)
+  mem.put('view', 'view-2', v)
   mem.put('data', 'data-1', d)
   const ui = await $.ui.mount(PANE)
-  await ui.resize({ columns: 40, rows: 10, in: 'tree' })
   return { w, mem, ui }
 }
-const post = async (ui: any, data: object) => {
-  await ui.post(data, { in: 'tree' })
+// 커서를 그 줄에 두고(저장된 값을 바꿔 다시 그린다) 줄 버튼을 누른다. 커서 줄을 누르는 것이므로 연다.
+async function openRow(ui: any, mem: any, key: string) {
+  mem.put('view', 'view-2', { ...mem.get('view'), cur: key })
+  await ui.redraw()
+  await settle()
+  await ui.press({ key: `r:${key}` })
+  await settle()
+}
+// 커서를 그 줄에 두고 단축키 버튼을 누른다
+async function hot(ui: any, mem: any, key: string, hotkey: string) {
+  mem.put('view', 'view-2', { ...mem.get('view'), cur: key })
+  await ui.redraw()
+  await settle()
+  await ui.press({ key: `act:${hotkey}` })
   await settle()
 }
 
@@ -49,31 +60,65 @@ test('home folder is shortened and outside sessions are counted', async ($, on) 
   await ui.unmount()
 })
 
-test('up message moves top', async ($, on) => {
+test('h moves top', async ($, on) => {
   const { ui, mem } = await setup($, on)
-  await post(ui, { act: 'up' })
+  await ui.press({ key: 'act:h' })
+  await settle()
   expect(mem.get('view')).toMatchObject({ top: '/home/u', cur: 'd:/home/u/p' })
   await ui.unmount()
 })
 
-test('more message expands past', async ($, on) => {
-  const { ui, mem } = await setup($, on)
-  await post(ui, { act: 'open', key: 'm:/home/u/p' })
+const MANY_PAST = Array.from({ length: 7 }, (_, i) => ({ agent: 'claude', id: `s${i}`, cwd: '/home/u/p', title: `대화 ${i}`, mtime: 1000 - i }))
+
+test('more row expands past', async ($, on) => {
+  const { ui, mem } = await setup($, on, {}, view(), { ...emptyData, past: { '/home/u/p': MANY_PAST } })
+  await openRow(ui, mem, 'm:/home/u/p')
   expect(mem.get('view').more).toEqual(['/home/u/p'])
   await ui.unmount()
 })
 
-test('bad message is ignored', async ($, on) => {
-  const { ui, mem } = await setup($, on)
-  await post(ui, { act: 'rm', key: 1 })
-  await post(ui, { act: 'tab', kind: 'z', key: 'd:/' })
-  expect(mem.get('view')).toMatchObject(view())
+test('pressing another row only selects it, pressing the cursor row opens it', async ($, on) => {
+  const { ui, mem } = await setup($, on, {}, view(), { ...emptyData, past: { '/home/u/p': MANY_PAST } })
+  await ui.press({ key: 'r:p:claude:s1' })
+  await settle()
+  expect(mem.get('view').cur).toBe('p:claude:s1')
+  expect(mem.get('view').more).toEqual([])
+  await ui.press({ key: 'r:m:/home/u/p' })
+  await settle()
+  expect(mem.get('view')).toMatchObject({ cur: 'm:/home/u/p', more: [] })
+  await ui.press({ key: 'r:m:/home/u/p' })
+  await settle()
+  expect(mem.get('view').more).toEqual(['/home/u/p'])
+  await ui.unmount()
+})
+
+test('l expands and collapses the cursor folder, a toggles hidden files', async ($, on) => {
+  const d = { ...emptyData, lists: { '/home/u/p': [{ name: 'src', dir: true }, { name: '.env', dir: false }] } }
+  const { ui, mem } = await setup($, on, { dirs: { '/': [{ name: 'home', kind: 'dir' }], '/home': [{ name: 'u', kind: 'dir' }], '/home/u': [{ name: 'p', kind: 'dir' }], '/home/u/p': [{ name: 'src', kind: 'dir' }], '/home/u/p/src': [] } }, view(), d)
+  await hot(ui, mem, 'd:/home/u/p/src', 'l')
+  expect(mem.get('view').open).toEqual(['/home/u/p/src'])
+  await hot(ui, mem, 'd:/home/u/p/src', 'l')
+  expect(mem.get('view').open).toEqual([])
+  await ui.press({ key: 'act:a' })
+  await settle()
+  expect(mem.get('view').hidden).toBe(true)
+  await ui.unmount()
+})
+
+test('rows beyond the window are cut with edge lines', async ($, on) => {
+  const many = Array.from({ length: 60 }, (_, i) => ({ name: `f${String(i).padStart(2, '0')}`, dir: false }))
+  const { ui } = await setup($, on, {}, view(), { ...emptyData, lists: { '/home/u/p': many } })
+  const rowButtons = (await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith('r:'))
+  expect(rowButtons.length).toBeGreaterThan(5)
+  expect(rowButtons.length).toBeLessThan(25)
+  expect(await ui.find({ type: 'Text', text: /▼ 아래로 \d+줄/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /▲/ })).toBeUndefined()
   await ui.unmount()
 })
 
 test('top folder removed', async ($, on) => {
   // 맨 위 폴더가 지워졌다. 남아 있는 가장 가까운 상위 폴더로 옮긴다.
-  const { w, mem, ui } = await setup($, on, { root: '/home/u/gone', dirs: { '/': [], '/home': [], '/home/u': [] } }, view({ top: '/home/u/gone/deep' }))
+  const { w, mem, ui } = await setup($, on, { dirs: { '/': [], '/home': [], '/home/u': [] } }, view({ top: '/home/u/gone/deep' }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await settle()
   expect(mem.get('view').top).toBe('/home/u')
@@ -142,10 +187,10 @@ const LIVE_STATE = (mux?: object, self = true) => ({
 })
 
 test('open on a live session in the same zellij session focuses its pane', async ($, on) => {
-  const { w, ui } = await setup($, on, {
+  const { w, mem, ui } = await setup($, on, {
     replies: [{ when: a => a[0] === 'zellij' && a.includes('list-panes'), stdout: JSON.stringify([{ id: 0, is_plugin: true, tab_id: 0 }, { id: 5, is_plugin: false, tab_id: 4 }]) }],
   }, view(), LIVE_STATE({ kind: 'zellij', session: 'hb', pane: 5 }))
-  await post(ui, { act: 'open', key: 'l:200' })
+  await openRow(ui, mem, 'l:200')
   expect(w.cmds.filter(c => c[0] === 'zellij')).toEqual([
     ['zellij', '--session', 'hb', 'action', 'list-panes', '-t', '-j'],
     ['zellij', 'action', 'go-to-tab-by-id', '4'],
@@ -155,25 +200,25 @@ test('open on a live session in the same zellij session focuses its pane', async
 })
 
 test('open on a live session outside any multiplexer explains where it runs', async ($, on) => {
-  const { w, ui } = await setup($, on, {}, view(), LIVE_STATE())
-  await post(ui, { act: 'open', key: 'l:200' })
+  const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE())
+  await openRow(ui, mem, 'l:200')
   expect(w.toasts).toEqual(['zellij나 tmux 밖에서 실행 중입니다: /home/u/p (pid 200)'])
   expect(w.cmds.filter(c => c[0] === 'zellij' || c[0] === 'tmux')).toEqual([])
   await ui.unmount()
 })
 
 test('open on this session does nothing', async ($, on) => {
-  const { w, ui } = await setup($, on, {}, view(), LIVE_STATE())
-  await post(ui, { act: 'open', key: 'l:100' })
+  const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE())
+  await openRow(ui, mem, 'l:100')
   expect(w.toasts).toEqual([])
   expect(w.cmds.filter(c => c[0] === 'zellij' || c[0] === 'tmux')).toEqual([])
   await ui.unmount()
 })
 
 test('open on a past conversation resumes it in a new tab', async ($, on) => {
-  const { w, ui } = await setup($, on, {}, view(), LIVE_STATE())
-  await post(ui, { act: 'open', key: 'p:claude:c1' })
-  await post(ui, { act: 'open', key: 'p:codex:x1' })
+  const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE())
+  await openRow(ui, mem, 'p:claude:c1')
+  await openRow(ui, mem, 'p:codex:x1')
   expect(w.cmds.filter(c => c[0] === 'zellij')).toEqual([
     ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p', '--', 'claude', '--resume', 'c1'],
     ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p', '--', 'codex', 'resume', 'x1'],
@@ -182,10 +227,10 @@ test('open on a past conversation resumes it in a new tab', async ($, on) => {
 })
 
 test('t, c and x open a new tab in the cursor folder', async ($, on) => {
-  const { w, ui } = await setup($, on, {}, view(), LIVE_STATE())
-  await post(ui, { act: 'tab', kind: 't', key: 'f:/home/u/p/a.ts' })
-  await post(ui, { act: 'tab', kind: 'c', key: 'l:200' })
-  await post(ui, { act: 'tab', kind: 'x', key: 'u:' })
+  const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE())
+  await hot(ui, mem, 'f:/home/u/p/a.ts', 't')
+  await hot(ui, mem, 'l:200', 'c')
+  await hot(ui, mem, 'u:', 'x')
   expect(w.cmds.filter(c => c[0] === 'zellij')).toEqual([
     ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p'],
     ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p', '--', 'claude'],
@@ -195,27 +240,26 @@ test('t, c and x open a new tab in the cursor folder', async ($, on) => {
 })
 
 test('a new tab outside a multiplexer shows the command instead', async ($, on) => {
-  const { w, ui } = await setup($, on, {}, view(), LIVE_STATE(undefined, false))
-  await post(ui, { act: 'open', key: 'p:claude:c1' })
+  const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE(undefined, false))
+  await openRow(ui, mem, 'p:claude:c1')
   expect(w.toasts[0]).toContain('cd /home/u/p && claude --resume c1')
   expect(w.cmds.filter(c => c[0] === 'zellij' || c[0] === 'tmux')).toEqual([])
   await ui.unmount()
 })
 
 test('a failing command stops and shows the first stderr line', async ($, on) => {
-  const { w, ui } = await setup($, on, {
+  const { w, mem, ui } = await setup($, on, {
     replies: [{ when: a => a[0] === 'zellij' && a.includes('go-to-tab-by-id'), exitCode: 1, stderr: 'tab 4 not found\n더 있는 줄\n' }, { when: a => a[0] === 'zellij' && a.includes('list-panes'), stdout: JSON.stringify([{ id: 5, is_plugin: false, tab_id: 4 }]) }],
   }, view(), LIVE_STATE({ kind: 'zellij', session: 'hb', pane: 5 }))
-  await post(ui, { act: 'open', key: 'l:200' })
+  await openRow(ui, mem, 'l:200')
   expect(w.toasts).toEqual(['tab 4 not found'])
   expect(w.cmds.some(c => c.includes('focus-pane-id'))).toBe(false)
   await ui.unmount()
 })
 
 test('open on a file puts @path into the prompt', async ($, on) => {
-  const { w, ui } = await setup($, on, {}, view(), LIVE_STATE())
-  await post(ui, { act: 'open', key: 'f:/home/u/p/a.ts' })
-  await post(ui, { act: 'open', key: 'f:/etc/hosts' })
-  expect(w.filled).toEqual(['@a.ts ', '@/etc/hosts '])
+  const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE())
+  await openRow(ui, mem, 'f:/home/u/p/a.ts')
+  expect(w.filled).toEqual(['@a.ts '])
   await ui.unmount()
 })

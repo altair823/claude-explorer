@@ -17,7 +17,8 @@ export type Data = {
   // 바뀐 파일 절대 경로별 한 글자: M A D R ?
   git: Record<string, string>
 }
-export type View = { top: string; open: string[]; cur: string; more: string[]; hidden: boolean }
+// start: 트리 창의 첫 줄 번호
+export type View = { top: string; open: string[]; cur: string; more: string[]; hidden: boolean; start: number }
 // latest: 확인한 가장 높은 릴리스 버전, ready: 그 버전을 이미 받아 두었는지
 export type Upgrade = { latest: string; ready: boolean }
 

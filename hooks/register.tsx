@@ -2,19 +2,19 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Data, Entry, Live, Past, View } from '../types'
-import type { Msg } from './list'
 import { focusSteps, hereOf, launchArgv, newTabSteps, resumeArgv, zellijTabOf } from './mux'
 import { PROBE, codexCwd, codexIdOf, liveSessions, parseCodexIndex, parseProbe, parseRegistry, parseTitles, slug } from './sessions'
 import type { Reg } from './sessions'
 import { clip, width } from './text'
-import { buildRows, fold, outsideCount, parseStatus, step } from './tree'
+import { buildRows, fitRow, fold, outsideCount, parseStatus, pressKind, step, stepped, windowStart } from './tree'
+import type { Msg, Row, Seg } from './tree'
 import { applyUpgrade, checkUpgrade, readVersion, upgradeLabel } from './upgrade'
 
 const PANE = 'session-explorer'
-const EMPTY_VIEW: View = { top: '', open: [], cur: '', more: [], hidden: false }
+const EMPTY_VIEW: View = { top: '', open: [], cur: '', more: [], hidden: false, start: 0 }
 const EMPTY_DATA: Data = { live: [], past: {}, lists: {}, git: {} }
 // 저장 형태가 바뀌면 shape 값을 올린다. 이전 버전이 저장한 값은 버려진다.
-const view = atom({ plugin: 'session-explorer', key: 'view' } as const, EMPTY_VIEW, { shape: 'view-1' })
+const view = atom({ plugin: 'session-explorer', key: 'view' } as const, EMPTY_VIEW, { shape: 'view-2' })
 const data = atom({ plugin: 'session-explorer', key: 'data' } as const, EMPTY_DATA, { shape: 'data-1' })
 
 // 사람이 패널을 직접 닫았는지, Codex 대화 파일별 작업 폴더 색인($.store)
@@ -37,6 +37,7 @@ let lastFast = 0
 let lastPast = 0
 let lastRoot = ''
 
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const parentOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1) || '/'
@@ -196,52 +197,55 @@ async function readPast($: EngineInterface, v: View, live: Live[]): Promise<Reco
 // ---- 갱신 ----
 
 // 갱신이 겹치면 하나로 합친다. 도는 중에 다시 요청되면 끝난 뒤 한 번 더 읽는다.
-let busy = false
+let running: Promise<void> | undefined
 let again = false
 let wantPast = false
-async function refresh($: EngineInterface, withPast = true) {
+// 끝나면 풀리는 약속을 돌려준다. 이미 도는 중이면 그 갱신이 끝난 뒤 한 번 더 읽고, 같은 약속을 돌려준다.
+function refresh($: EngineInterface, withPast = true): Promise<void> {
   wantPast ||= withPast
-  if (busy) {
+  if (running) {
     again = true
-    return
+    return running
   }
-  busy = true
-  try {
-    do {
-      again = false
-      const past = wantPast
-      wantPast = false
-      let v = await read($, view)
-      // 처음 열었거나 메인 세션의 프로젝트 폴더가 /cd로 바뀌었으면 트리의 맨 위를 새 폴더로 옮긴다
-      const root = await $.session.root().catch(() => '')
-      // 처음 읽을 때(lastRoot가 빔)는 이미 있는 맨 위 폴더를 그대로 둔다. 플러그인을 다시 불러온 뒤에도 탐색 위치가 유지된다.
-      if (root && (!v.top || (lastRoot && root !== lastRoot))) {
-        lastRoot = root
-        v = { ...EMPTY_VIEW, ...(v.top && { hidden: v.hidden }), top: root }
-        await update($, view, () => v)
-      }
-      if (!v.top) continue
-      lastRoot ||= root
-      const top = await existingTop($, v.top)
-      if (top !== v.top) {
-        v = { ...v, top, open: v.open.filter(p => p.startsWith(`${top}/`)), cur: '' }
-        await update($, view, () => v)
-      }
-      const now = await $.clock.now()
-      const prev = await read($, data)
-      const live = (await readLive($)) ?? prev.live
-      const dirs = [...new Set([v.top, ...v.open])]
-      const lists: Data['lists'] = {}
-      await Promise.all(dirs.map(async d => void (lists[d] = await listDir($, d))))
-      const git = await gitMarks($, v, now).catch(() => prev.git)
-      const pastNow = past ? await readPast($, v, live).catch(() => prev.past) : Object.fromEntries(dirs.map(d => [d, prev.past[d] ?? []]))
-      await update($, data, () => ({ live, past: pastNow, lists, git }))
-      lastFast = now
-      if (past) lastPast = now
-    } while (again)
-  } finally {
-    busy = false
-  }
+  running = (async () => {
+    try {
+      do {
+        again = false
+        const past = wantPast
+        wantPast = false
+        let v = await read($, view)
+        // 처음 열었거나 메인 세션의 프로젝트 폴더가 /cd로 바뀌었으면 트리의 맨 위를 새 폴더로 옮긴다
+        const root = await $.session.root().catch(() => '')
+        // 처음 읽을 때(lastRoot가 빔)는 이미 있는 맨 위 폴더를 그대로 둔다. 플러그인을 다시 불러온 뒤에도 탐색 위치가 유지된다.
+        if (root && (!v.top || (lastRoot && root !== lastRoot))) {
+          lastRoot = root
+          v = { ...EMPTY_VIEW, ...(v.top && { hidden: v.hidden }), top: root }
+          await update($, view, () => v)
+        }
+        if (!v.top) continue
+        lastRoot ||= root
+        const top = await existingTop($, v.top)
+        if (top !== v.top) {
+          v = { ...v, top, open: v.open.filter(p => p.startsWith(`${top}/`)), cur: '' }
+          await update($, view, () => v)
+        }
+        const now = await $.clock.now()
+        const prev = await read($, data)
+        const live = (await readLive($)) ?? prev.live
+        const dirs = [...new Set([v.top, ...v.open])]
+        const lists: Data['lists'] = {}
+        await Promise.all(dirs.map(async d => void (lists[d] = await listDir($, d))))
+        const git = await gitMarks($, v, now).catch(() => prev.git)
+        const pastNow = past ? await readPast($, v, live).catch(() => prev.past) : Object.fromEntries(dirs.map(d => [d, prev.past[d] ?? []]))
+        await update($, data, () => ({ live, past: pastNow, lists, git }))
+        lastFast = now
+        if (past) lastPast = now
+      } while (again)
+    } finally {
+      running = undefined
+    }
+  })()
+  return running
 }
 
 const isShown = async ($: EngineInterface) => (await $.ui.panes()).find(p => p.id === PANE)?.isShown === true
@@ -256,9 +260,10 @@ async function tick($: EngineInterface) {
 
 const open = ($: EngineInterface, focus?: true) => $.ui.open({ id: PANE, title: '탐색기', ...(focus && { focus }) })
 
-// 클릭으로도 패널에 키보드가 들어오게 한다. 입력창이 비어 있을 때만 받아들여지는 요청이다.
-async function focusPane($: EngineInterface) {
+// 행동 뒤에도 키보드가 패널에 남도록 패널과 커서 줄에 초점을 다시 준다. 입력창이 비어 있을 때만 받아들여지는 요청이다.
+async function focusPane($: EngineInterface, key?: string) {
   await open($, true)
+  if (key) await $.ui.focus({ requestId: PANE, key }).catch(() => {})
 }
 
 // ---- 동작 ----
@@ -307,33 +312,40 @@ async function openRow($: EngineInterface, key: string, v: View, d: Data) {
   }
 }
 
-// Client의 메시지와 아래 단축키 버튼이 함께 쓴다
-async function dispatch($: EngineInterface, msg: Msg) {
+// 트리 창에 보이는 줄 수. 그릴 때마다 정해지고, 방향키로 창 끝을 넘을 때 쓴다.
+let lastRows = 20
+// 사람이 커서를 이 줄로 옮긴 시각과 직전 줄 누름. 클릭 한 번이 선택인지 열기인지 가린다.
+let focusedAt = 0
+let lastPress: { key: string; t: number } | undefined
+
+// 커서를 key 줄로 두고, 그 줄이 보이도록 창을 맞춘다
+async function setCursor($: EngineInterface, key: string) {
+  const [v, d] = await Promise.all([read($, view), read($, data)])
+  const start = windowStart(buildRows(v, d, home), { cur: key, start: v.start }, lastRows)
+  await update($, view, x => ({ ...x, cur: key, start }))
+}
+
+// 줄 버튼과 단축키 버튼이 함께 쓰는 동작
+async function act($: EngineInterface, msg: Msg) {
   const [v, d] = await Promise.all([read($, view), read($, data)])
   if (msg.act === 'tab') {
     const dir = folderOf(msg.key, v, d)
-    return perform($, newTabSteps(hereOf(d.live.find(l => l.self)?.mux), dir, baseName(dir), launchArgv(msg.kind)))
+    await perform($, newTabSteps(hereOf(d.live.find(l => l.self)?.mux), dir, baseName(dir), launchArgv(msg.kind)))
+    return focusPane($, v.cur && `r:${v.cur}`)
   }
   const next = step(v, msg, d.live)
   if (next) {
     await update($, view, () => next)
-    // 보이는 폴더가 바뀌었으면 목록과 끝난 대화를 바로 읽는다
-    if (msg.act !== 'move' && msg.act !== 'hidden') void refresh($).catch(() => {})
-    return
+    // 보이는 폴더가 바뀌었으면 목록과 끝난 대화를 읽은 뒤에 커서를 맞춘다(커서 줄이 아직 없으면 초점을 줄 수 없다)
+    if (next.top !== v.top || next.open.length > v.open.length || next.more.length !== v.more.length) await refresh($).catch(() => {})
+    const [v2, d2] = await Promise.all([read($, view), read($, data)])
+    const rows = buildRows(v2, d2, home)
+    const cur = rows.some(r => r.key === v2.cur) ? v2.cur : (rows[0]?.key ?? '')
+    if (cur !== v2.cur || windowStart(rows, v2, lastRows) !== v2.start) await update($, view, x => ({ ...x, cur, start: windowStart(rows, { cur, start: x.start }, lastRows) }))
+    return focusPane($, cur && `r:${cur}`)
   }
   if (msg.act === 'open') await openRow($, msg.key, v, d)
-}
-
-// Client가 보낸 값은 입력이므로 모양을 확인한다
-function parseMsg(x: unknown): Msg | undefined {
-  const m = x as { act?: unknown; key?: unknown; kind?: unknown } | null
-  const key = typeof m?.key === 'string'
-  switch (m?.act) {
-    case 'move': case 'open': case 'expand': case 'collapse': return key ? (m as Msg) : undefined
-    case 'tab': return key && (m.kind === 't' || m.kind === 'c' || m.kind === 'x') ? (m as Msg) : undefined
-    case 'up': case 'next': case 'hidden': return m as Msg
-    default: return undefined
-  }
+  return focusPane($, v.cur && `r:${v.cur}`)
 }
 
 export const register: Register = on => {
@@ -358,7 +370,7 @@ export const register: Register = on => {
     await $.store.set(CLOSED, false).catch(() => {})
     void refresh($).catch(() => {})
     await open($, true)
-    return { text: '탐색기 패널을 열었습니다. 트리를 한 번 클릭하면 방향키와 Enter를 쓸 수 있고, Esc로 입력창에 돌아옵니다.' }
+    return { text: '탐색기 패널을 열었습니다. 방향키로 줄을 옮기고 Enter로 열고, Esc로 입력창에 돌아옵니다.' }
   })
 
   // 사람이 직접 닫으면 다음 세션에는 열지 않는다
@@ -367,45 +379,108 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('ui.message', { requestId: PANE }, async ($, e) => {
-    const msg = parseMsg(e.data)
-    if (msg) await dispatch($, msg).catch(() => {})
-    return {}
+  // 방향키나 클릭으로 커서가 움직이면 기록한다. 창 끝에서 더 나가려 하면 창을 한 줄 옮긴다.
+  on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const el = e.element
+    const person = e.origin.kind === 'person'
+    // 방향키와 Tab이 아래 단축키 버튼으로 넘어가지 않게 한다. 단축키는 글자 키나 클릭으로 누른다.
+    if (el?.startsWith('act:') && person) return {}
+    // 창 위아래 경계 줄로 가려는 이동은 막고, 그 방향에 줄이 더 있으면 창을 한 줄 옮긴다.
+    if (el?.startsWith('edge:')) {
+      if (person) {
+        const [v, d] = await Promise.all([read($, view), read($, data)])
+        const w = stepped(buildRows(v, d, home), v, lastRows, el === 'edge:bottom' ? 1 : -1)
+        if (w) {
+          await update($, view, x => ({ ...x, ...w }))
+          void $.ui.focus({ requestId: PANE, key: `r:${w.cur}` }).catch(() => {})
+        }
+      }
+      return {}
+    }
+    const done = await next(e)
+    // 사람이 옮긴 것만 기록한다. 다시 그린 뒤 엔진이 첫 줄에 초점을 되돌리는 알림이 방금 고른 커서를 덮지 않게 한다.
+    if (person && el?.startsWith('r:')) {
+      focusedAt = await $.clock.now()
+      await setCursor($, el.slice(2))
+    }
+    return done
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    // Client는 터미널과 데스크톱 화면에만 있다
-    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
-    const { Box, Text, Button, Client } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const [v, d, upLabel] = await Promise.all([read($, view), read($, data), upgradeLabel($)])
     await homeDir($)
+    // 마지막 칸에 글자를 쓰면 줄이 넘어갈 수 있어 한 칸 남긴다.
     const cols = Math.max(20, e.props.bodyColumns - 1)
-    const total = Math.max(5, e.props.scroll.bodyRows)
+    const total = Math.max(6, e.props.scroll.bodyRows)
+    // 머리 1줄, 창 위아래 경계 줄 2줄, 구분선 1줄, 단축키 2줄(좁으면 줄이 바뀐다)
+    lastRows = Math.max(1, total - 6)
+    const rows = buildRows(v, d, home)
+    const start = windowStart(rows, v, lastRows)
+    const shown = rows.slice(start, start + lastRows)
+    const below = Math.max(0, rows.length - start - lastRows)
     const outside = outsideCount(v.top, d.live)
     const right = outside > 0 ? `트리 밖 세션 ${outside}` : ''
     const title = clip(v.top ? fold(v.top, home) : '불러오는 중', Math.max(5, cols - (right ? width(right) + 1 : 0)))
-    const act = (hotkey: string, label: string, onPress: () => unknown) => (
+    const ring = shown.some(r => r.key === v.cur) ? v.cur : shown[0]?.key
+
+    const press = async (row: Row) => {
+      const [now, cur] = await Promise.all([$.clock.now(), read($, view)])
+      const kind = pressKind({ cur: cur.cur, focusedAt, ...(lastPress && { lastPress }) }, row.key, now)
+      lastPress = { key: row.key, t: now }
+      if (kind === 'open') return act($, { act: 'open', key: row.key })
+      await setCursor($, row.key)
+      await focusPane($, `r:${row.key}`)
+    }
+    const scroll = async (dir: 1 | -1) => {
+      const [vv, dd] = await Promise.all([read($, view), read($, data)])
+      const rs = buildRows(vv, dd, home)
+      const s = clamp(windowStart(rs, vv, lastRows) + dir * Math.max(1, lastRows - 1), 0, Math.max(0, rs.length - lastRows))
+      const at = Math.max(0, rs.findIndex(r => r.key === vv.cur) - windowStart(rs, vv, lastRows))
+      const cur = rs[Math.min(rs.length - 1, s + at)]?.key ?? vv.cur
+      await update($, view, x => ({ ...x, cur, start: s }))
+      await focusPane($, `r:${cur}`)
+    }
+    const edge = (key: string, label: string, dir: 1 | -1) => (
+      <Button key={key} plain onPress={() => void scroll(dir).catch(() => {})}>
+        <Text dimColor>{label || ' '}</Text>
+      </Button>
+    )
+    const seg = (s: Seg, isCur: boolean) => <Text color={s.color} dimColor={s.dim && !isCur} backgroundColor={isCur ? 'subtle' : undefined}>{s.t}</Text>
+    const act1 = (hotkey: string, label: string, onPress: () => unknown) => (
       <Button key={`act:${hotkey}`} hotkey={hotkey} onPress={() => void focusPane($).catch(() => {}).then(() => onPress())}>
         <Text color="suggestion" weight="bold">{hotkey}</Text>
         <Text>{` ${label}`}</Text>
       </Button>
     )
     // 단축키는 커서 줄에 대해 동작한다
-    const onCursor = (kind: 't' | 'c' | 'x') => () => dispatch($, { act: 'tab', kind, key: v.cur || 'd:' + v.top }).catch(() => {})
+    const onCursor = async (m: (key: string) => Msg) => {
+      const vv = await read($, view)
+      await act($, m(vv.cur || `d:${vv.top}`))
+    }
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" justifyContent="space-between" width={cols}>
           <Text weight="bold">{title}</Text>
           {right && <Text color="cyan">{right}</Text>}
         </Box>
-        <Client key="tree" module="./list.tsx" props={{ rows: buildRows(v, d, home), cur: v.cur }} width={cols} height={Math.max(3, total - 3)} />
+        {edge('edge:top', start ? `▲ 위로 ${start}줄` : '', -1)}
+        {shown.map(row => (
+          <Button key={`r:${row.key}`} plain autoFocus={row.key === ring || undefined} onPress={() => void press(row).catch(() => {})}>
+            {fitRow(row, cols).map(s => seg(s, row.key === v.cur))}
+          </Button>
+        ))}
+        {Array.from({ length: Math.max(0, lastRows - shown.length) }, () => <Text> </Text>)}
+        {edge('edge:bottom', below ? `▼ 아래로 ${below}줄` : '', 1)}
         <Text dimColor>{'─'.repeat(cols)}</Text>
-        <Box flexDirection="row">
-          {act('h', '위로', () => dispatch($, { act: 'up' }).catch(() => {}))}<Text> </Text>
-          {act('s', '세션', () => dispatch($, { act: 'next' }).catch(() => {}))}<Text> </Text>
-          {act('t', '셸', onCursor('t'))}<Text> </Text>
-          {act('c', 'Claude', onCursor('c'))}<Text> </Text>
-          {act('x', 'Codex', onCursor('x'))}
+        <Box flexDirection="row" flexWrap="wrap" width={cols}>
+          {act1('h', '위로', () => act($, { act: 'up' }))}<Text> </Text>
+          {act1('l', '펼치기', () => onCursor(key => ((buildRows(v, d, home).find(r => r.key === key)?.open ? { act: 'collapse', key } : { act: 'expand', key }) as Msg)))}<Text> </Text>
+          {act1('s', '세션', () => act($, { act: 'next' }))}<Text> </Text>
+          {act1('t', '셸', () => onCursor(key => ({ act: 'tab', kind: 't', key })))}<Text> </Text>
+          {act1('c', 'Claude', () => onCursor(key => ({ act: 'tab', kind: 'c', key })))}<Text> </Text>
+          {act1('x', 'Codex', () => onCursor(key => ({ act: 'tab', kind: 'x', key })))}<Text> </Text>
+          {act1('a', '숨김', () => act($, { act: 'hidden' }))}
           {upLabel && (
             <Box flexDirection="row">
               <Text> </Text>

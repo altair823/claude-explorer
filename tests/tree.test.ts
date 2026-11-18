@@ -1,11 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildRows, dirCounts, fold, nextSessionView, outsideCount, parseStatus, step } from '../hooks/tree'
+import { buildRows, dirCounts, fitRow, fold, nextSessionView, outsideCount, parseStatus, pressKind, step } from '../hooks/tree'
+import type { Row } from '../hooks/tree'
+import { width } from '../hooks/text'
 import type { Data, View } from '../types'
 
 const home = '/home/u'
 const data = (o: Partial<Data> = {}): Data => ({ live: [], past: {}, lists: {}, git: {}, ...o })
-const view = (o: Partial<View> = {}): View => ({ top: '/home/u/p', open: [], cur: '', more: [], hidden: false, ...o })
+const view = (o: Partial<View> = {}): View => ({ top: '/home/u/p', open: [], cur: '', more: [], hidden: false, start: 0, ...o })
 
 test('parses porcelain -z', () => {
   const z = ' M hooks/a.ts\0?? new dir/\0R  b.ts\0old b.ts\0D  gone.md\0A  added.ts\0UU conflict.ts\0'
@@ -81,4 +83,51 @@ test('step changes only the view', () => {
   expect(step(view(), { act: 'expand', key: 'd:/home/u/p/app' }, [])!.open).toEqual(['/home/u/p/app'])
   expect(step(v, { act: 'hidden' }, [])!.hidden).toBe(true)
   expect(step(v, { act: 'tab', kind: 't', key: 'd:/home/u/p' }, [])).toBeUndefined()
+})
+
+const R = (key: string, kind: Row['kind'], text: string, o: Partial<Row> = {}): Row => ({ key, kind, depth: 0, text, ...o })
+const shown = (r: Row, w: number) => fitRow(r, w).map(s => s.t).join('')
+
+test('fits narrow width', () => {
+  const long = 'x'.repeat(60)
+  const rows = [
+    R('d:/p/a', 'dir', `${long}/`, { mark: 'M3', count: 1 }),
+    R('l:1', 'live', long, { depth: 1, note: '작업 중 이 세션' }),
+    R('p:claude:a', 'past', '가'.repeat(30) + '나'.repeat(30), { dim: true, note: '11-17' }),
+    R('l:2', 'live', '한글 이름', { depth: 3, note: '작업 중 codex 이 세션' }),
+  ]
+  for (const r of rows) {
+    const line = shown(r, 40)
+    expect(width(line)).toBeLessThanOrEqual(40)
+    expect(width(line)).toBe(40)
+  }
+  expect(shown(rows[0]!, 40)).toContain('…')
+  expect(shown(rows[0]!, 40)).toMatch(/M3 ●1$/)
+  expect(shown(rows[1]!, 40)).toContain('…')
+  expect(shown(rows[2]!, 40)).toContain('…')
+  // 아주 좁으면 note부터 뺀다
+  expect(shown(rows[3]!, 24)).not.toContain('codex')
+  expect(width(shown(rows[3]!, 24))).toBe(24)
+})
+test('draws glyphs and colors', () => {
+  const segs = fitRow(R('d:/p/a', 'dir', 'a/', { open: true, mark: 'M1', count: 2 }), 30)
+  expect(segs[1]).toEqual({ t: '▾' })
+  expect(segs.find(s => s.t === 'M1')).toMatchObject({ color: 'yellow' })
+  expect(segs.find(s => s.t === '●2')).toMatchObject({ color: 'green' })
+  expect(fitRow(R('l:1', 'live', 'a', { note: '작업 중' }), 30)[1]).toMatchObject({ t: '●', color: 'green' })
+  expect(fitRow(R('l:1', 'live', 'a', { note: '대기' }), 30)[1]).toMatchObject({ t: '○' })
+  expect(fitRow(R('l:1', 'live', 'a', { note: '실행 중 codex' }), 30)[1]).toMatchObject({ t: '◆' })
+  expect(fitRow(R('f:/a', 'file', 'a', { mark: 'D' }), 30).find(s => s.t === 'D')).toMatchObject({ color: 'red' })
+})
+test('press selects other row', () => {
+  expect(pressKind({ cur: 'a', focusedAt: 0 }, 'b', 1000)).toBe('select')
+})
+test('press opens cursor row', () => {
+  expect(pressKind({ cur: 'a', focusedAt: 0 }, 'a', 1000)).toBe('open')
+})
+test('click focus then press selects', () => {
+  expect(pressKind({ cur: 'a', focusedAt: 990 }, 'a', 1000)).toBe('select')
+  expect(pressKind({ cur: 'a', focusedAt: 990, lastPress: { key: 'a', t: 700 } }, 'a', 1000)).toBe('open')
+  // 다른 줄을 눌렀던 직후 이 줄을 클릭하면 선택이다
+  expect(pressKind({ cur: 'a', focusedAt: 990, lastPress: { key: 'b', t: 900 } }, 'a', 1000)).toBe('select')
 })
