@@ -51,6 +51,7 @@ export function liveCounts(live: Live[]): Record<string, number> {
 }
 
 export function fold(path: string, home: string): string {
+  if (!home) return path
   if (path === home) return '~'
   return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 }
@@ -124,7 +125,8 @@ export function nextSessionView(view: View, live: Live[]): View {
 }
 
 // 보기 상태만 바꾸는 동작. 프로세스나 입력창이 필요한 동작(세션 이동, 새 탭, 파일 입력)은 undefined를 돌려준다.
-export function step(view: View, msg: Msg, rows: Row[], live: Live[]): View | undefined {
+// 키의 폴더 경로는 없는 곳이어도 받아들인다. 갱신이 가장 가까운 상위 폴더로 맞춘다.
+export function step(view: View, msg: Msg, live: Live[]): View | undefined {
   const up = (): View => (view.top === '/' ? view : { ...view, top: parentOf(view.top), cur: `d:${view.top}` })
   switch (msg.act) {
     case 'move': return { ...view, cur: msg.key }
@@ -133,13 +135,11 @@ export function step(view: View, msg: Msg, rows: Row[], live: Live[]): View | un
     case 'up': return up()
     case 'hidden': return { ...view, hidden: !view.hidden }
     case 'next': return nextSessionView(view, live)
-    case 'open': {
-      const row = rows.find(r => r.key === msg.key)
-      if (row?.kind === 'up') return up()
-      if (row?.kind === 'dir') return { ...view, top: msg.key.slice(2), open: [], cur: '' }
-      if (row?.kind === 'more') return { ...view, more: [...new Set([...view.more, msg.key.slice(2)])] }
+    case 'open':
+      if (msg.key === 'u:') return up()
+      if (msg.key.startsWith('d:')) return { ...view, top: msg.key.slice(2), open: [], cur: '' }
+      if (msg.key.startsWith('m:')) return { ...view, more: [...new Set([...view.more, msg.key.slice(2)])] }
       return undefined
-    }
     default: return undefined
   }
 }

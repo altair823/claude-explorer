@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { isDouble } from '../hooks/list'
 import { memState } from './state'
+import { world } from './world'
 import type { Data, View } from '../types'
 
 // 시험 환경에는 있지만 타입 정의(lib)에는 없는 전역 함수
@@ -24,6 +25,8 @@ const BASIC = stateOf({ open: ['/p/app'] }, {
 async function mount($: any, on: any, st: ReturnType<typeof stateOf>, size = { columns: 40, rows: 6 }) {
   const posts: unknown[] = []
   on('ui.message', (_: unknown, e: { data: unknown }) => (posts.push(e.data), {}))
+  // 보기를 바꾸는 키 뒤에 갱신이 돌아도 같은 목록이 읽히도록 가짜 환경에 같은 폴더를 둔다
+  world(on, { root: '/p', dirs: { '/': [{ name: 'p', kind: 'dir' }], '/p': [{ name: 'app', kind: 'dir' }, { name: 'a.md', kind: 'file' }], '/p/app': [] } })
   const mem = memState(on)
   mem.put('view', 'view-1', st.view)
   mem.put('data', 'data-1', st.data)
@@ -81,9 +84,12 @@ test('double click opens, slow second click only moves', async ($, on) => {
   expect(mem.get('view')).toMatchObject({ top: '/p', cur: 'd:/p/app' })
   await ui.pointer({ type: 'down', x: 3, y: 1, button: 'left' })
   expect(mem.get('view')).toMatchObject({ top: '/p/app', cur: '' })
-  // 오른쪽 위에서 처음 열었던 폴더 안이므로 줄이 바뀐다. 다시 맨 위 폴더를 원래대로 돌린다.
+  // 폴더로 들어가면 줄이 바뀐다. 보기와 목록을 처음 상태로 돌려 놓는다.
+  await settle()
   mem.put('view', 'view-1', at('u:').view)
+  mem.put('data', 'data-1', at('u:').data)
   await ui.redraw()
+  await settle()
   await ui.pointer({ type: 'down', x: 3, y: 3, button: 'left' })
   await new Promise(r => setTimeout(r, 450))
   await ui.pointer({ type: 'down', x: 3, y: 3, button: 'left' })
@@ -132,5 +138,21 @@ test('draws marks, counts and glyphs', async ($, on) => {
   expect(out.find(l => l.includes('app/'))).toMatch(/^ *▾ app\/ +M1 ●1 *$/)
   expect(out.find(l => l.includes('app-1'))).toMatch(/^ +● app-1 +작업 중 *$/)
   expect(out.find(l => l.includes('a.md'))).toMatch(/a\.md +M *$/)
+  await ui.unmount()
+})
+
+test('cursor returns to its row after the list is read again', async ($, on) => {
+  const { ui, mem } = await mount($, on, at('l:7'))
+  const inverse = async () => (await ui.findAll({ type: 'Text', in: 'tree' })).filter((t: any) => t.props.inverse).map((t: any) => t.text as string).join('')
+  expect(await inverse()).toContain('app-1')
+  // 폴더가 바뀐 직후처럼 목록이 아직 비어 있는 동안에는 첫 줄이 커서다
+  mem.put('data', 'data-1', { live: [], past: {}, lists: {}, git: {} })
+  await ui.redraw()
+  await settle()
+  expect(await inverse()).toContain('..')
+  mem.put('data', 'data-1', BASIC.data)
+  await ui.redraw()
+  await settle()
+  expect(await inverse()).toContain('app-1')
   await ui.unmount()
 })

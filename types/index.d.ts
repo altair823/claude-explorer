@@ -18,9 +18,11 @@ export type Data = {
   git: Record<string, string>
 }
 export type View = { top: string; open: string[]; cur: string; more: string[]; hidden: boolean }
+// latest: 확인한 가장 높은 릴리스 버전, ready: 그 버전을 이미 받아 두었는지
+export type Upgrade = { latest: string; ready: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
-    'session-explorer': { view: Shaped<View>; data: Shaped<Data> }
+    'session-explorer': { view: Shaped<View>; data: Shaped<Data>; upgrade: Shaped<Upgrade> }
   }
 }

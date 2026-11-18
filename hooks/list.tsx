@@ -1,5 +1,6 @@
 import type { ClientModule } from 'claude-code'
 
+import { clip, width } from './text'
 import type { Row } from './tree'
 
 export type ListProps = { rows: Row[]; cur: string }
@@ -17,29 +18,6 @@ const DOUBLE_MS = 400
 
 // 같은 줄을 400ms 안에 다시 누르면 더블클릭이다
 export const isDouble = (last: Last | undefined, key: string, t: number): boolean => !!last && last.key === key && t - last.t <= DOUBLE_MS
-
-// 칸 폭: 한글과 이모지는 두 칸
-const cw = (ch: string) => {
-  const c = ch.codePointAt(0) ?? 0
-  if ((c >= 0x0300 && c <= 0x036f) || (c >= 0x200b && c <= 0x200f) || (c >= 0xfe00 && c <= 0xfe0f)) return 0
-  return (c >= 0x1100 && c <= 0x115f) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) ||
-    (c >= 0xf900 && c <= 0xfaff) || (c >= 0xfe30 && c <= 0xfe4f) || (c >= 0xff00 && c <= 0xff60) ||
-    (c >= 0xffe0 && c <= 0xffe6) || (c >= 0x1f300 && c <= 0x1faff)
-    ? 2
-    : 1
-}
-const width = (s: string) => [...s].reduce((n, ch) => n + cw(ch), 0)
-
-// cols칸에 들어가도록 끝을 …로 자른다
-function clip(s: string, cols: number): string {
-  if (width(s) <= cols) return s
-  let t = ''
-  for (const ch of s) {
-    if (width(t) + cw(ch) > cols - 1) break
-    t += ch
-  }
-  return `${t}…`
-}
 
 type Seg = { t: string; color?: string; dim?: boolean }
 const MARK_COLOR: Record<string, string> = { M: 'yellow', A: 'green', '?': 'green', D: 'red', R: 'cyan' }
@@ -87,6 +65,15 @@ function line(r: Row, cols: number): Seg[] {
   return []
 }
 
+// 커서 줄의 번호. 지난 커서 줄이 목록에 없으면(목록을 아직 읽는 중이거나 접힌 폴더 안) hooks가 알려 준 줄, 그것도 없으면 첫 줄이다.
+// 커서 값 자체는 바꾸지 않아서, 목록이 다시 채워지면 원래 줄로 돌아간다.
+function cursorAt(st: St): number {
+  const rs = st.ctl.props.rows
+  const a = rs.findIndex(r => r.key === st.cur)
+  if (a >= 0) return a
+  return Math.max(0, rs.findIndex(r => r.key === st.ctl.props.cur))
+}
+
 const List: ClientModule<ListProps, St> = (props, s) => {
   const { Box, Text } = s.elements
   const fresh = s.state === undefined
@@ -115,7 +102,7 @@ const List: ClientModule<ListProps, St> = (props, s) => {
     s.onKey(k => {
       const cur = now()
       const rs = cur.ctl.props.rows
-      const i = rs.findIndex(r => r.key === cur.cur)
+      const i = cursorAt(cur)
       const r = rs[i]
       const page = Math.max(1, s.rows - 1)
       switch (k.key) {
@@ -160,11 +147,7 @@ const List: ClientModule<ListProps, St> = (props, s) => {
     st.propCur = props.cur
     if (!st.ctl.posted.includes(props.cur)) st.cur = props.cur
   }
-  let at = rows.findIndex(r => r.key === st.cur)
-  if (at < 0) {
-    at = 0
-    st.cur = rows[0]?.key ?? ''
-  }
+  const at = cursorAt(st)
   // 커서 줄이 항상 보이도록 맨 위 줄을 맞춘다
   const height = s.rows > 0 ? s.rows : Math.max(1, rows.length)
   st.top = Math.max(0, Math.min(st.top, rows.length - height))
