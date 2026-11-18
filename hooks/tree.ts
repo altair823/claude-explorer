@@ -1,4 +1,5 @@
 import type { Data, Live, View } from '../types'
+import type { Msg } from './list'
 
 export type RowKind = 'up' | 'dir' | 'file' | 'live' | 'past' | 'more' | 'note'
 // key: 'u:' 상위, 'd:<abs>' 폴더, 'f:<abs>' 파일, 'l:<pid>' 실행 중 세션,
@@ -120,4 +121,25 @@ export function nextSessionView(view: View, live: Live[]): View {
   const at = sorted.findIndex(l => `l:${l.pid}` === view.cur)
   const next = sorted[(at + 1) % sorted.length]!
   return { ...view, top: parentOf(next.cwd), open: [...new Set([...view.open, next.cwd])], cur: `l:${next.pid}` }
+}
+
+// 보기 상태만 바꾸는 동작. 프로세스나 입력창이 필요한 동작(세션 이동, 새 탭, 파일 입력)은 undefined를 돌려준다.
+export function step(view: View, msg: Msg, rows: Row[], live: Live[]): View | undefined {
+  const up = (): View => (view.top === '/' ? view : { ...view, top: parentOf(view.top), cur: `d:${view.top}` })
+  switch (msg.act) {
+    case 'move': return { ...view, cur: msg.key }
+    case 'expand': return msg.key.startsWith('d:') ? { ...view, open: [...new Set([...view.open, msg.key.slice(2)])] } : view
+    case 'collapse': return { ...view, open: view.open.filter(p => `d:${p}` !== msg.key) }
+    case 'up': return up()
+    case 'hidden': return { ...view, hidden: !view.hidden }
+    case 'next': return nextSessionView(view, live)
+    case 'open': {
+      const row = rows.find(r => r.key === msg.key)
+      if (row?.kind === 'up') return up()
+      if (row?.kind === 'dir') return { ...view, top: msg.key.slice(2), open: [], cur: '' }
+      if (row?.kind === 'more') return { ...view, more: [...new Set([...view.more, msg.key.slice(2)])] }
+      return undefined
+    }
+    default: return undefined
+  }
 }

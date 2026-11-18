@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildRows, dirCounts, fold, nextSessionView, outsideCount, parseStatus } from '../hooks/tree'
+import { buildRows, dirCounts, fold, nextSessionView, outsideCount, parseStatus, step } from '../hooks/tree'
 import type { Data, View } from '../types'
 
 const home = '/home/u'
@@ -67,4 +67,20 @@ test('folds home', () => {
   expect(fold('/home/u/p', home)).toBe('~/p')
   expect(fold('/home/u', home)).toBe('~')
   expect(fold('/home/user/p', home)).toBe('/home/user/p')
+})
+
+test('step changes only the view', () => {
+  const v = view({ open: ['/home/u/p/app'] })
+  const d = data({ lists: { '/home/u/p': [{ name: 'app', dir: true }] }, past: { '/home/u/p': Array.from({ length: 7 }, (_, i) => ({ agent: 'claude' as const, id: `s${i}`, cwd: '/home/u/p', title: `t${i}`, mtime: i })) } })
+  const rows = buildRows(v, d, home)
+  expect(step(v, { act: 'up' }, rows, [])).toMatchObject({ top: '/home/u', cur: 'd:/home/u/p' })
+  expect(step(view({ top: '/' }), { act: 'up' }, [], [])).toMatchObject({ top: '/' })
+  expect(step(v, { act: 'open', key: 'u:' }, rows, [])).toMatchObject({ top: '/home/u' })
+  expect(step(v, { act: 'open', key: 'd:/home/u/p/app' }, rows, [])).toEqual(view({ top: '/home/u/p/app', open: [], cur: '' }))
+  expect(step(v, { act: 'open', key: 'm:/home/u/p' }, rows, [])!.more).toEqual(['/home/u/p'])
+  expect(step(v, { act: 'open', key: 'f:/home/u/p/x' }, rows, [])).toBeUndefined()
+  expect(step(v, { act: 'collapse', key: 'd:/home/u/p/app' }, rows, [])!.open).toEqual([])
+  expect(step(view(), { act: 'expand', key: 'd:/home/u/p/app' }, rows, [])!.open).toEqual(['/home/u/p/app'])
+  expect(step(v, { act: 'hidden' }, rows, [])!.hidden).toBe(true)
+  expect(step(v, { act: 'tab', kind: 't', key: 'd:/home/u/p' }, rows, [])).toBeUndefined()
 })
