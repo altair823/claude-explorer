@@ -90,9 +90,8 @@ export function buildRows(view: View, data: Data, home: string): Row[] {
     const list = data.lists[dir]
     if (!list) return
     if ('error' in list) return void rows.push({ key: `n:${dir}:0`, kind: 'note', depth, text: list.error, dim: true })
-    const shown = list
-      .filter(e => e.name !== '.git' && (view.hidden || !e.name.startsWith('.')))
-      .sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name))
+    // 목록은 읽을 때 이미 정렬되어 있다(폴더 먼저, 이름순)
+    const shown = list.filter(e => e.name !== '.git' && (view.hidden || !e.name.startsWith('.')))
     for (const e of shown.slice(0, MAX_ENTRIES)) {
       const path = join(dir, e.name)
       if (!e.dir) {

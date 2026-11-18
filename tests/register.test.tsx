@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import { memState } from './state'
 import { world } from './world'
@@ -158,7 +158,7 @@ test('refresh reads sessions, folder lists, git marks and past conversations', a
   await settle()
   const d = mem.get('data')
   expect(d.live).toEqual([{ agent: 'claude', pid: 100, cwd: dir, name: 'explorer', state: 'busy', id: 'self', mux: { kind: 'zellij', session: 'se-test', pane: 3 }, self: true }])
-  expect(d.lists[dir]).toEqual([{ name: 'a.ts', dir: false }, { name: 'src', dir: true }, { name: 'ln', dir: true }])
+  expect(d.lists[dir]).toEqual([{ name: 'ln', dir: true }, { name: 'src', dir: true }, { name: 'a.ts', dir: false }])
   expect(d.git).toEqual({ [`${dir}/a.ts`]: 'M', [`${dir}/src`]: '?' })
   // 실행 중인 세션(self)의 대화는 끝난 대화에서 빼고, 제목이 없는 대화는 id 앞부분으로 부른다
   expect(d.past[dir].map((p: any) => [p.id, p.title])).toEqual([['a1', '탐색기 설계'], ['b2', 'b2']])
@@ -193,8 +193,8 @@ test('open on a live session in the same zellij session focuses its pane', async
   await openRow(ui, mem, 'l:200')
   expect(w.cmds.filter(c => c[0] === 'zellij')).toEqual([
     ['zellij', '--session', 'hb', 'action', 'list-panes', '-t', '-j'],
-    ['zellij', 'action', 'go-to-tab-by-id', '4'],
-    ['zellij', 'action', 'focus-pane-id', 'terminal_5'],
+    ['zellij', '--session', 'hb', 'action', 'go-to-tab-by-id', '4'],
+    ['zellij', '--session', 'hb', 'action', 'focus-pane-id', 'terminal_5'],
   ])
   await ui.unmount()
 })
@@ -220,8 +220,8 @@ test('open on a past conversation resumes it in a new tab', async ($, on) => {
   await openRow(ui, mem, 'p:claude:c1')
   await openRow(ui, mem, 'p:codex:x1')
   expect(w.cmds.filter(c => c[0] === 'zellij')).toEqual([
-    ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p', '--', 'claude', '--resume', 'c1'],
-    ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p', '--', 'codex', 'resume', 'x1'],
+    ['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/home/u/p', '--name=p', '--', 'claude', '--resume', 'c1'],
+    ['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/home/u/p', '--name=p', '--', 'codex', 'resume', 'x1'],
   ])
   await ui.unmount()
 })
@@ -232,9 +232,9 @@ test('t, c and x open a new tab in the cursor folder', async ($, on) => {
   await hot(ui, mem, 'l:200', 'c')
   await hot(ui, mem, 'u:', 'x')
   expect(w.cmds.filter(c => c[0] === 'zellij')).toEqual([
-    ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p'],
-    ['zellij', 'action', 'new-tab', '--cwd', '/home/u/p', '--name', 'p', '--', 'claude'],
-    ['zellij', 'action', 'new-tab', '--cwd', '/home/u', '--name', 'u', '--', 'codex'],
+    ['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/home/u/p', '--name=p'],
+    ['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/home/u/p', '--name=p', '--', 'claude'],
+    ['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/home/u', '--name=u', '--', 'codex'],
   ])
   await ui.unmount()
 })
@@ -261,5 +261,82 @@ test('open on a file puts @path into the prompt', async ($, on) => {
   const { w, mem, ui } = await setup($, on, {}, view(), LIVE_STATE())
   await openRow(ui, mem, 'f:/home/u/p/a.ts')
   expect(w.filled).toEqual(['@a.ts '])
+  await ui.unmount()
+})
+
+test('open on a file with spaces quotes the path', async ($, on) => {
+  const d = { ...emptyData, lists: { '/home/u/p': [{ name: 'my file.md', dir: false }] } }
+  const { w, mem, ui } = await setup($, on, {}, view(), d)
+  await openRow(ui, mem, 'f:/home/u/p/my file.md')
+  expect(w.filled).toEqual(['@"my file.md" '])
+  await ui.unmount()
+})
+
+test('new tab in tmux names the session of the Claude pane', async ($, on) => {
+  const self = { agent: 'claude', pid: 100, cwd: '/home/u/p', name: 'x', state: 'busy', id: 'self', self: true, mux: { kind: 'tmux', socket: '/tmp/tmux-1/default', pane: '%4' } }
+  const { w, mem, ui } = await setup($, on, { replies: [{ when: a => a[0] === 'tmux' && a[3] === 'display-message', stdout: '$7\n' }] }, view(), { ...emptyData, live: [self] })
+  await hot(ui, mem, 'u:', 't')
+  expect(w.cmds.filter(c => c[0] === 'tmux' && c[3] === 'new-window')).toEqual([['tmux', '-S', '/tmp/tmux-1/default', 'new-window', '-t', '$7:', '-c', '/home/u', '-n', 'u']])
+  await ui.unmount()
+})
+
+test('the top folder starts at its real path', async ($, on) => {
+  const { mem, ui } = await setup($, on, { root: '/home/u/link', dirs: { '/srv/real': [] }, real: { '/home/u/link': '/srv/real' } }, view({ top: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await settle()
+  expect(mem.get('view').top).toBe('/srv/real')
+  await ui.unmount()
+})
+
+test('ticks while a refresh is running do not queue another one', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-11-19T09:00:00Z') })
+  const { w, ui } = await setup($, on, { timers: true, probe: '', sleep: ms => clock.sleep(ms), delay: a => (a[0] === 'sh' ? 10_500 : 0) })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(10_500)
+  // 느린 조회 하나가 도는 동안 틱이 여러 번 지났지만 조회는 한 번뿐이다
+  expect(w.cmds.filter(c => c[0] === 'sh')).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('a failing or timed out git status is retried only after 30 seconds', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-11-19T09:00:00Z') })
+  const dir = '/home/u/p'
+  const { w, ui } = await setup($, on, { timers: true, repos: { [dir]: '' }, reject: a => a[0] === 'git' && a.includes('status') })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(20_000)
+  expect(w.cmds.filter(c => c[0] === 'git' && c.includes('status'))).toHaveLength(1)
+  await clock.advance(15_000)
+  expect(w.cmds.filter(c => c[0] === 'git' && c.includes('status')).length).toBeGreaterThanOrEqual(2)
+  await ui.unmount()
+})
+
+test('titles are cached only after grep succeeds', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-11-19T09:00:00Z') })
+  const dir = '/home/u/p'
+  const proj = '/home/u/.claude/projects/-home-u-p'
+  let failing = true
+  const { w, mem, ui } = await setup($, on, {
+    timers: true,
+    dirs: { '/': [{ name: 'home', kind: 'dir' }], '/home': [{ name: 'u', kind: 'dir' }], '/home/u': [{ name: 'p', kind: 'dir' }], [dir]: [], [proj]: [{ name: 'a1.jsonl', kind: 'file', mtimeMs: 2000 }] },
+    reject: a => failing && a[0] === 'grep',
+    replies: [{ when: a => a[0] === 'grep' && a.some(x => x.includes('aiTitle')), stdout: `${proj}/a1.jsonl:"aiTitle":"탐색기 설계"\n` }],
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(1000)
+  expect(mem.get('data').past[dir][0].title).toBe('a1')
+  failing = false
+  await clock.advance(35_000)
+  expect(mem.get('data').past[dir][0].title).toBe('탐색기 설계')
+  expect(w.cmds.length).toBeGreaterThan(0)
+  await ui.unmount()
+})
+
+test('a codex file without cwd is read once', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-11-19T09:00:00Z') })
+  const f = '/home/u/.codex/sessions/2026/11/15/rollout-2026-11-15T00-53-05-01a1dac3-26fa-7e53-9a7f-a93d3c9865d2.jsonl'
+  const { w, ui } = await setup($, on, { timers: true, files: { [f]: '{"type":"nothing useful"}' }, replies: [{ when: a => a[0] === 'find', stdout: `1795000000.5 ${f}\n` }] })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(70_000)
+  expect(w.reads.filter(p => p === f)).toHaveLength(1)
   await ui.unmount()
 })

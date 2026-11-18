@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Data, Entry, Live, Past, View } from '../types'
+import type { Here } from './mux'
 import { focusSteps, hereOf, launchArgv, newTabSteps, resumeArgv, zellijTabOf } from './mux'
 import { PROBE, codexCwd, codexIdOf, liveSessions, parseCodexIndex, parseProbe, parseRegistry, parseTitles, slug } from './sessions'
 import type { Reg } from './sessions'
@@ -41,7 +42,11 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const parentOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1) || '/'
-const relTo = (from: string, to: string) => (to.startsWith(`${from}/`) ? to.slice(from.length + 1) : to)
+// @경로: 공백이 있으면 따옴표로 감싼다
+const mention = (from: string, to: string) => {
+  const p = to.startsWith(`${from}/`) ? to.slice(from.length + 1) : to
+  return /\s/.test(p) ? `@"${p}"` : `@${p}`
+}
 
 async function homeDir($: EngineInterface): Promise<string> {
   if (!home) home = (await $.env.get('HOME').catch(() => undefined)) || ''
@@ -63,18 +68,19 @@ async function readLive($: EngineInterface): Promise<Live[] | undefined> {
   return liveSessions(regs, procs, await $.session.id().catch(() => ''))
 }
 
+// 폴더 먼저, 이름순으로 정렬해 저장한다. 그리는 쪽은 다시 정렬하지 않는다.
 async function listDir($: EngineInterface, dir: string): Promise<Entry[] | { error: string }> {
   try {
-    const out: Entry[] = []
-    for (const e of await $.fs.list(dir)) {
-      if (e.kind !== 'other') out.push({ name: e.name, dir: e.kind === 'dir' })
-      else if (e.isLink) {
+    const found = await Promise.all(
+      (await $.fs.list(dir)).map(async (e): Promise<Entry | undefined> => {
+        if (e.kind !== 'other') return { name: e.name, dir: e.kind === 'dir' }
+        if (!e.isLink) return undefined
         // 링크는 가리키는 대상으로 판단한다. 끊어진 링크는 뺀다.
         const st = await $.fs.stat(join(dir, e.name)).catch(() => undefined)
-        if (st) out.push({ name: e.name, dir: st.kind === 'dir' })
-      }
-    }
-    return out
+        return st && { name: e.name, dir: st.kind === 'dir' }
+      }),
+    )
+    return found.filter((e): e is Entry => !!e).sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name))
   } catch {
     return { error: '읽을 수 없습니다' }
   }
@@ -111,9 +117,8 @@ async function gitMarks($: EngineInterface, v: View, now: number): Promise<Recor
     if (!memo || now - memo.at >= (memo.slow ? SLOW_GIT_MS : FAST_MS) - 100) {
       const r = await $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v1', '-z'], { cwd: root, env: QUIET, timeoutMs: 20_000 }).catch(() => undefined)
       const done = await $.clock.now()
-      // 실패는 표시 없이 넘어간다(지난 표시를 그대로 둔다)
-      if (r?.exitCode === 0) gitMemo.set(root, { marks: parseStatus(r.stdout, root), at: now, slow: done - now > GIT_SLOW })
-      else if (memo) memo.at = now
+      // 실패와 타임아웃은 표시 없이 넘어가고(지난 표시를 그대로 둔다) 느린 저장소처럼 30초 뒤에 다시 읽는다
+      gitMemo.set(root, r?.exitCode === 0 ? { marks: parseStatus(r.stdout, root), at: now, slow: done - now > GIT_SLOW } : { marks: memo?.marks ?? {}, at: now, slow: true })
     }
     Object.assign(out, gitMemo.get(root)?.marks)
   }
@@ -130,8 +135,14 @@ async function claudeTitles($: EngineInterface, files: { path: string; mtime: nu
   const todo = files.filter(f => !titleMemo.has(`${f.path}@${f.mtime}`))
   if (!todo.length) return
   // grep은 처음 일치에서 멈추므로 큰 대화 파일도 부담이 작다. 사용자가 정한 이름을 먼저 쓴다.
-  const grep = (key: string) => $.process.run(['grep', '-H', '-m1', '-o', '-E', TITLE_PATTERN(key), ...todo.map(f => f.path)], { timeoutMs: 20_000 }).then(r => parseTitles(r.stdout), () => ({}) as Record<string, string>)
+  // 실패나 타임아웃이면 undefined를 돌려주고, 그때는 캐시에 저장하지 않아 다음에 다시 읽는다.
+  const grep = (key: string) =>
+    $.process.run(['grep', '-H', '-m1', '-o', '-E', TITLE_PATTERN(key), ...todo.map(f => f.path)], { timeoutMs: 20_000 }).then(
+      r => (r.exitCode === 0 || r.exitCode === 1 ? parseTitles(r.stdout) : undefined),
+      () => undefined,
+    )
   const [custom, ai] = [await grep('customTitle'), await grep('aiTitle')]
+  if (!custom || !ai) return
   for (const f of todo) titleMemo.set(`${f.path}@${f.mtime}`, custom[f.path] ?? ai[f.path] ?? shortId(f.id))
 }
 
@@ -154,8 +165,8 @@ async function codexPast($: EngineInterface, dirs: string[], skip: Set<string>):
     const known = codexIndex[f.path]
     if (known !== undefined) next[f.path] = known
     else {
-      const cwd = await $.fs.read(f.path, { length: 2048 }).then(codexCwd, () => undefined)
-      if (cwd) next[f.path] = cwd
+      // 읽지 못했거나 작업 폴더가 없는 파일은 빈 문자열로 표시해 한 번만 읽는다
+      next[f.path] = (await $.fs.read(f.path, { length: 2048 }).then(codexCwd, () => undefined)) ?? ''
       changed = true
     }
   }
@@ -219,7 +230,9 @@ function refresh($: EngineInterface, withPast = true): Promise<void> {
         // 처음 읽을 때(lastRoot가 빔)는 이미 있는 맨 위 폴더를 그대로 둔다. 플러그인을 다시 불러온 뒤에도 탐색 위치가 유지된다.
         if (root && (!v.top || (lastRoot && root !== lastRoot))) {
           lastRoot = root
-          v = { ...EMPTY_VIEW, ...(v.top && { hidden: v.hidden }), top: root }
+          // 링크가 풀린 경로로 맞춘다. /proc의 cwd와 git이 돌려주는 경로가 그 값이다.
+          const real = await $.fs.stat(root, { resolve: true }).then(st => st.realPath ?? root, () => root)
+          v = { ...EMPTY_VIEW, ...(v.top && { hidden: v.hidden }), top: real }
           await update($, view, () => v)
         }
         if (!v.top) continue
@@ -252,7 +265,8 @@ const isShown = async ($: EngineInterface) => (await $.ui.panes()).find(p => p.i
 
 // 1초마다 깨어나 패널이 보일 때만 주기가 된 조회를 한다
 async function tick($: EngineInterface) {
-  if (!(await isShown($))) return
+  // 갱신이 도는 중이면 겹쳐 요청하지 않는다. 겹친 요청(again)은 사용자 동작만 쓴다.
+  if (running || !(await isShown($))) return
   const now = await $.clock.now()
   const root = await $.session.root().catch(() => '')
   if (now - lastFast >= FAST_MS - 100 || (root && lastRoot && root !== lastRoot)) await refresh($, now - lastPast >= PAST_MS - 100)
@@ -287,12 +301,24 @@ function folderOf(key: string, v: View, d: Data): string {
   return key === 'u:' ? parentOf(v.top) : v.top
 }
 
+// 이 Claude 세션이 있는 multiplexer. tmux면 창이 속한 세션 id도 물어서 명령에 명시한다(환경 상속에 기대지 않는다).
+async function hereNow($: EngineInterface, d: Data): Promise<Here> {
+  const mux = d.live.find(l => l.self)?.mux
+  const here = hereOf(mux)
+  if (mux?.kind === 'tmux' && here?.kind === 'tmux') {
+    const r = await $.process.run(['tmux', '-S', mux.socket, 'display-message', '-p', '-t', mux.pane, '#{session_id}'], { timeoutMs: 5000 }).catch(() => undefined)
+    const session = r?.exitCode === 0 ? r.stdout.trim() : ''
+    if (session) here.session = session
+  }
+  return here
+}
+
 // 줄의 기본 동작(Enter, 더블클릭)
 async function openRow($: EngineInterface, key: string, v: View, d: Data) {
-  const here = hereOf(d.live.find(l => l.self)?.mux)
+  const here = await hereNow($, d)
   if (key.startsWith('f:')) {
     const cwd = await $.session.cwd().catch(() => v.top)
-    const filled = await $.prompt.fill({ text: `@${relTo(cwd, key.slice(2))} `, mode: 'insert' })
+    const filled = await $.prompt.fill({ text: `${mention(cwd, key.slice(2))} `, mode: 'insert' })
     return void $.ui.toast(filled.isFilled ? '입력창에 넣었습니다. Esc로 입력창에 돌아가 보내세요' : '입력창에 넣지 못했습니다')
   }
   if (key.startsWith('l:')) {
@@ -330,7 +356,7 @@ async function act($: EngineInterface, msg: Msg) {
   const [v, d] = await Promise.all([read($, view), read($, data)])
   if (msg.act === 'tab') {
     const dir = folderOf(msg.key, v, d)
-    await perform($, newTabSteps(hereOf(d.live.find(l => l.self)?.mux), dir, baseName(dir), launchArgv(msg.kind)))
+    await perform($, newTabSteps(await hereNow($, d), dir, baseName(dir), launchArgv(msg.kind)))
     return focusPane($, v.cur && `r:${v.cur}`)
   }
   const next = step(v, msg, d.live)

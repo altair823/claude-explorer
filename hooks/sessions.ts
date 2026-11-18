@@ -6,9 +6,10 @@ import type { Agent, Live, Mux } from '../types'
 export const PROBE = String.raw`
 for d in /proc/[0-9]*; do
   pid=\${d#/proc/}
-  comm=$(cat "$d/comm" 2>/dev/null) || continue
+  # cat 대신 셸 내장 read를 쓴다. 프로세스마다 fork하지 않아 빠르다.
+  read -r comm 2>/dev/null < "$d/comm" || continue
   case "$comm" in claude|codex) ;; *) continue ;; esac
-  stat=$(cat "$d/stat" 2>/dev/null) || continue
+  read -r stat 2>/dev/null < "$d/stat" || continue
   # comm에 공백이나 괄호가 있을 수 있어 마지막 ")" 뒤에서 센다. 그 뒤 첫 값이 3번째 필드이므로 22번째는 20번째다.
   rest=\${stat##*) }
   start=$(printf '%s\n' "$rest" | cut -d' ' -f20)

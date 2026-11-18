@@ -4,7 +4,7 @@ import { focusSteps, hereOf, launchArgv, newTabSteps, resumeArgv, zellijTabOf } 
 
 const z = { kind: 'zellij' as const, session: 'hb', pane: 11 }
 test('focus in same zellij session', () => {
-  expect(focusSteps(z, { kind: 'zellij', session: 'hb' }, 7)).toEqual([['zellij', 'action', 'go-to-tab-by-id', '7'], ['zellij', 'action', 'focus-pane-id', 'terminal_11']])
+  expect(focusSteps(z, { kind: 'zellij', session: 'hb' }, 7)).toEqual([['zellij', '--session', 'hb', 'action', 'go-to-tab-by-id', '7'], ['zellij', '--session', 'hb', 'action', 'focus-pane-id', 'terminal_11']])
 })
 test('focus in another zellij session switches last', () => {
   const steps = focusSteps(z, { kind: 'zellij', session: 'work' }, 7) as string[][]
@@ -24,11 +24,15 @@ test('tmux focus', () => {
   expect(focusSteps({ kind: 'tmux', socket: '/other', pane: '%4' }, { kind: 'tmux', socket: '/s' })).toHaveProperty('error')
 })
 test('new tab commands', () => {
-  expect(newTabSteps({ kind: 'zellij', session: 'hb' }, '/p/app', 'app', resumeArgv('claude', 'df37'))).toEqual([['zellij', 'action', 'new-tab', '--cwd', '/p/app', '--name', 'app', '--', 'claude', '--resume', 'df37']])
-  expect(newTabSteps({ kind: 'zellij', session: 'hb' }, '/p/app', 'app', launchArgv('t'))).toEqual([['zellij', 'action', 'new-tab', '--cwd', '/p/app', '--name', 'app']])
+  expect(newTabSteps({ kind: 'zellij', session: 'hb' }, '/p/app', 'app', resumeArgv('claude', 'df37'))).toEqual([['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/p/app', '--name=app', '--', 'claude', '--resume', 'df37']])
+  expect(newTabSteps({ kind: 'zellij', session: 'hb' }, '/p/app', 'app', launchArgv('t'))).toEqual([['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/p/app', '--name=app']])
   expect(newTabSteps({ kind: 'tmux', socket: '/s' }, '/p/app', 'app', resumeArgv('codex', 'c1'))).toEqual([['tmux', '-S', '/s', 'new-window', '-c', '/p/app', '-n', 'app', 'codex resume c1']])
   expect(newTabSteps(undefined, '/p/app', 'app', ['claude'])).toEqual({ error: expect.stringContaining('cd /p/app && claude') })
   expect(newTabSteps(undefined, '/p/my app', 'app', [])).toEqual({ error: expect.stringContaining("cd '/p/my app'") })
+})
+test('names that look like options or tmux formats stay literal', () => {
+  expect(newTabSteps({ kind: 'zellij', session: 'hb' }, '/p/-foo', '-foo', [])).toEqual([['zellij', '--session', 'hb', 'action', 'new-tab', '--cwd=/p/-foo', '--name=-foo']])
+  expect(newTabSteps({ kind: 'tmux', socket: '/s', session: '$3' }, '/p/a#b', 'a#b', [])).toEqual([['tmux', '-S', '/s', 'new-window', '-t', '$3:', '-c', '/p/a#b', '-n', 'a##b']])
 })
 test('finds tab of pane', () => {
   // zellij 0.45.1 `list-panes -t -j` 출력에서 줄인 입력. 터미널 창 id와 플러그인 창 id는 겹칠 수 있다.
