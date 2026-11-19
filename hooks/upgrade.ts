@@ -5,7 +5,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Upgrade } from '../types'
 
 // 릴리스 태그를 조회할 저장소. 비공개 Gitea라 로그인 정보가 없으면 조회가 실패하고, 그때는 조용히 넘긴다. GitHub 공개 미러를 만들면 그 주소로 바꾼다.
-const UPSTREAM = 'https://gitea.altair823.xyz/altair823-org/claude-session-explorer.git'
+const UPSTREAM = 'https://github.com/altair823/claude-session-explorer.git'
 // 인증이 없을 때 입력을 기다리며 멈추지 않게 한다.
 const QUIET = { GIT_TERMINAL_PROMPT: '0' }
 

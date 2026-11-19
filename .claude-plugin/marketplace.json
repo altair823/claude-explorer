@@ -10,7 +10,7 @@
       "description": "Claude Code 패널에 파일 트리와 Claude, Codex 세션을 함께 보여 주고 세션 창으로 이동하거나 새 탭을 연다(release 브랜치, CI가 시험을 통과한 커밋만 릴리스한다)",
       "source": {
         "source": "url",
-        "url": "https://gitea.altair823.xyz/altair823-org/claude-session-explorer.git",
+        "url": "https://github.com/altair823/claude-session-explorer.git",
         "ref": "release"
       }
     }

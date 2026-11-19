@@ -5,7 +5,7 @@ Claude Code 오른쪽 패널에 파일 트리를 보여 주는 mod입니다. 트
 ## 설치
 
 ```
-claude plugin marketplace add https://gitea.altair823.xyz/altair823-org/claude-session-explorer.git
+claude plugin marketplace add altair823/claude-session-explorer
 claude plugin install session-explorer@claude-session-explorer
 ```
 
@@ -62,6 +62,12 @@ claude plugin install session-explorer@claude-session-explorer
 - 실행 중인 Codex 세션: `/proc`에서 터미널에 연결된 `codex` 프로세스.
 - 끝난 대화: `~/.claude/projects/`와 `~/.codex/sessions/`.
 - 창 위치: 세션 프로세스의 `ZELLIJ_SESSION_NAME`, `ZELLIJ_PANE_ID`, `TMUX`, `TMUX_PANE` 환경 변수.
+
+## 이슈와 PR
+
+버그나 제안은 이슈로 올리면 됩니다.
+
+이 저장소는 비공개 저장소를 그대로 옮겨 오는 미러라서, 여기서 PR을 머지하면 다음 동기화 때 지워집니다. 그래서 PR 내용은 비공개 저장소에 옮겨 반영하고, PR 작성자를 커밋의 공동 작성자로 남긴 뒤 PR을 닫습니다.
 
 ## 개발
 
