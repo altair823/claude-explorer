@@ -7,7 +7,7 @@ import { focusSteps, hereOf, launchArgv, newTabSteps, resumeArgv, zellijTabOf } 
 import { PROBE, codexCwd, codexIdOf, liveSessions, parseCodexIndex, parseProbe, parseRegistry, parseTitles, slug } from './sessions'
 import type { Reg } from './sessions'
 import { clip, width } from './text'
-import { buildRows, fitRow, fold, outsideCount, parseStatus, pressKind, step, stepped, windowStart } from './tree'
+import { buildRows, fitRow, fold, outsideCount, parseStatus, pressKind, scrolled, step, stepped, windowStart } from './tree'
 import type { Msg, Row, Seg } from './tree'
 import { applyUpgrade, checkUpgrade, readVersion, upgradeLabel } from './upgrade'
 
@@ -38,7 +38,6 @@ let lastFast = 0
 let lastPast = 0
 let lastRoot = ''
 
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const parentOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1) || '/'
@@ -432,6 +431,17 @@ export const register: Register = on => {
     return done
   })
 
+  // 마우스 휠. 패널은 보이는 줄만 그려서 엔진이 옮길 내용이 없으므로, 창을 직접 옮기고 엔진의 이동은 막는다.
+  // 휠이 아닌 스크롤 키(pointer 없음)는 엔진에 맡긴다. 키보드 초점은 옮기지 않는다.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!e.pointer) return next(e)
+    const [v, d] = await Promise.all([read($, view), read($, data)])
+    const w = scrolled(buildRows(v, d, home), v, lastRows, e.by)
+    if (!w) return {}
+    await update($, view, x => ({ ...x, ...w }))
+    return {}
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const [v, d, upLabel] = await Promise.all([read($, view), read($, data), upgradeLabel($)])
@@ -460,12 +470,9 @@ export const register: Register = on => {
     }
     const scroll = async (dir: 1 | -1) => {
       const [vv, dd] = await Promise.all([read($, view), read($, data)])
-      const rs = buildRows(vv, dd, home)
-      const s = clamp(windowStart(rs, vv, lastRows) + dir * Math.max(1, lastRows - 1), 0, Math.max(0, rs.length - lastRows))
-      const at = Math.max(0, rs.findIndex(r => r.key === vv.cur) - windowStart(rs, vv, lastRows))
-      const cur = rs[Math.min(rs.length - 1, s + at)]?.key ?? vv.cur
-      await update($, view, x => ({ ...x, cur, start: s }))
-      await focusPane($, `r:${cur}`)
+      const w = scrolled(buildRows(vv, dd, home), vv, lastRows, dir * Math.max(1, lastRows - 1))
+      if (w) await update($, view, x => ({ ...x, ...w }))
+      await focusPane($, `r:${w?.cur ?? vv.cur}`)
     }
     const edge = (key: string, label: string, dir: 1 | -1) => (
       <Button key={key} plain onPress={() => void scroll(dir).catch(() => {})}>

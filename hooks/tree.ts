@@ -221,6 +221,17 @@ export function windowStart(rows: Row[], v: Win, height: number): number {
   return i < s ? i : i >= s + height ? i - height + 1 : s
 }
 
+// 휠과 위아래 경계 줄 클릭: 창을 by줄 옮기고 커서도 같은 만큼 옮겨 화면의 같은 줄에 둔다. 패널이 키보드를 가졌을 때
+// 엔진의 초점 표시는 다시 그려도 화면 위치에 머물러서(2026-11-19 2.1.327에서 확인), 커서를 화면 위치에 두어야 Enter가 커서 줄을 누른다.
+// 창이 움직이지 않으면 undefined.
+export function scrolled(rows: Row[], v: Win, height: number, by: number): Win | undefined {
+  const s0 = windowStart(rows, v, height)
+  const s = clamp(s0 + by, 0, Math.max(0, rows.length - height))
+  if (s === s0) return undefined
+  const i = rows.findIndex(r => r.key === v.cur)
+  return { cur: rows[i < 0 ? s : i + s - s0]!.key, start: s }
+}
+
 // 방향키로 창 끝에서 더 나가려 할 때: 다음(dir 1) 또는 이전(dir -1) 줄이 창 끝에 보이도록 창을 옮기고 커서를 그 줄로 옮긴다.
 // 더 갈 줄이 없으면 undefined.
 export function stepped(rows: Row[], v: Win, height: number, dir: 1 | -1): Win | undefined {

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildRows, dirCounts, fitRow, fold, nextSessionView, outsideCount, parseStatus, pressKind, step } from '../hooks/tree'
+import { buildRows, dirCounts, fitRow, fold, nextSessionView, outsideCount, parseStatus, pressKind, scrolled, step } from '../hooks/tree'
 import type { Row } from '../hooks/tree'
 import { width } from '../hooks/text'
 import type { Data, View } from '../types'
@@ -130,4 +130,20 @@ test('click focus then press selects', () => {
   expect(pressKind({ cur: 'a', focusedAt: 990, lastPress: { key: 'a', t: 700 } }, 'a', 1000)).toBe('open')
   // 다른 줄을 눌렀던 직후 이 줄을 클릭하면 선택이다
   expect(pressKind({ cur: 'a', focusedAt: 990, lastPress: { key: 'b', t: 900 } }, 'a', 1000)).toBe('select')
+})
+
+test('휠은 창과 커서를 같은 만큼 옮겨 커서를 화면의 같은 줄에 둔다', () => {
+  const rows = Array.from({ length: 10 }, (_, i) => R(`f:${i}`, 'file', `${i}`))
+  // 0~3이 보이고 커서는 화면 셋째 줄(2): 한 줄 내리면 창 1~4, 커서 3
+  expect(scrolled(rows, { cur: 'f:2', start: 0 }, 4, 1)).toEqual({ cur: 'f:3', start: 1 })
+  // 창 3~6에서 한 줄 올리면 창 2~5, 커서 6은 5로
+  expect(scrolled(rows, { cur: 'f:6', start: 3 }, 4, -1)).toEqual({ cur: 'f:5', start: 2 })
+  // 끝에 걸리면 실제로 움직인 만큼만 옮긴다(창 5~8에서 3줄 내리면 6~9, 커서 8은 9로)
+  expect(scrolled(rows, { cur: 'f:8', start: 5 }, 4, 3)).toEqual({ cur: 'f:9', start: 6 })
+  // 커서가 없으면 창의 첫 줄
+  expect(scrolled(rows, { cur: '', start: 0 }, 4, 2)).toEqual({ cur: 'f:2', start: 2 })
+  // 끝에서 더 내리거나 처음에서 더 올리면, 또 줄이 창보다 적으면 움직이지 않는다
+  expect(scrolled(rows, { cur: 'f:9', start: 6 }, 4, 2)).toBeUndefined()
+  expect(scrolled(rows, { cur: 'f:0', start: 0 }, 4, -1)).toBeUndefined()
+  expect(scrolled(rows.slice(0, 3), { cur: 'f:0', start: 0 }, 4, 1)).toBeUndefined()
 })
