@@ -1,5 +1,5 @@
 {
-  "name": "session-explorer",
+  "name": "explorer",
   "version": "0.1.0",
   "description": "패널에 파일 트리와 Claude Code, Codex 세션을 함께 보여 주고 세션 창 이동과 새 탭 열기를 한다",
   "author": {

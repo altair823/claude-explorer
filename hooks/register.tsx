@@ -11,12 +11,12 @@ import { buildRows, fitRow, fold, outsideCount, parseStatus, pressKind, step, st
 import type { Msg, Row, Seg } from './tree'
 import { applyUpgrade, checkUpgrade, readVersion, upgradeLabel } from './upgrade'
 
-const PANE = 'session-explorer'
+const PANE = 'explorer'
 const EMPTY_VIEW: View = { top: '', open: [], cur: '', more: [], hidden: false, start: 0 }
 const EMPTY_DATA: Data = { live: [], past: {}, lists: {}, git: {} }
 // 저장 형태가 바뀌면 shape 값을 올린다. 이전 버전이 저장한 값은 버려진다.
-const view = atom({ plugin: 'session-explorer', key: 'view' } as const, EMPTY_VIEW, { shape: 'view-2' })
-const data = atom({ plugin: 'session-explorer', key: 'data' } as const, EMPTY_DATA, { shape: 'data-1' })
+const view = atom({ plugin: 'explorer', key: 'view' } as const, EMPTY_VIEW, { shape: 'view-2' })
+const data = atom({ plugin: 'explorer', key: 'data' } as const, EMPTY_DATA, { shape: 'data-1' })
 
 // 사람이 패널을 직접 닫았는지, Codex 대화 파일별 작업 폴더 색인($.store)
 const CLOSED = 'closed'
@@ -377,7 +377,7 @@ async function act($: EngineInterface, msg: Msg) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    await $.command.register({ name: 'session-explorer', description: '파일 트리와 세션 탐색기 패널 열기' })
+    await $.command.register({ name: 'explorer', description: '파일 트리와 세션 탐색기 패널 열기' })
     await homeDir($)
     lastFast = lastPast = 0
     if ((await $.store.get(CLOSED).catch(() => undefined)) !== true) void open($).catch(() => {})
@@ -392,7 +392,7 @@ export const register: Register = on => {
     return started
   })
 
-  on('command.run', { command: 'session-explorer' }, async $ => {
+  on('command.run', { command: 'explorer' }, async $ => {
     await $.store.set(CLOSED, false).catch(() => {})
     void refresh($).catch(() => {})
     await open($, true)

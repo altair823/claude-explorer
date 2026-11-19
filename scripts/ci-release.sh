@@ -31,8 +31,8 @@ fi
 # 지난 태그와 main이 갈라진 곳(merge-base)부터 센다.
 base="${last:+$(git merge-base "v$last" HEAD)}"
 notes="$(git log --no-merges --format='- %s' ${base:+"$base"..}HEAD)"
-body="$(printf '%s\n\n## 변경\n\n%s\n\n## 설치\n\n```\nclaude plugin marketplace add altair823/claude-session-explorer\nclaude plugin install session-explorer@claude-session-explorer\n```\n\n이미 설치했다면 claude plugin update session-explorer@claude-session-explorer로 받고 /reload-plugins로 적용한다.\n' \
-    "session-explorer $next 릴리스다. main의 시험을 통과한 커밋을 CI가 릴리스했다." "$notes")"
+body="$(printf '%s\n\n## 변경\n\n%s\n\n## 설치\n\n```\nclaude plugin marketplace add altair823/claude-explorer\nclaude plugin install explorer@claude-explorer\n```\n\n이미 설치했다면 claude plugin update explorer@claude-explorer로 받고 /reload-plugins로 적용한다.\n' \
+    "explorer $next 릴리스다. main의 시험을 통과한 커밋을 CI가 릴리스했다." "$notes")"
 
 if [ "${DRY_RUN:-}" = 1 ]; then
     printf '다음 버전: %s (마지막 태그 %s, plugin.json %s)\n\n%s\n' "$next" "${last:-없음}" "$declared" "$body"
@@ -58,6 +58,6 @@ git push -q --force origin HEAD:refs/heads/release "refs/tags/v$next"
 
 curl -sS --fail-with-body -X POST \
     -H @<(printf 'Authorization: token %s\n' "$GITEA_TOKEN") -H 'Content-Type: application/json' \
-    "${GITHUB_SERVER_URL:-https://gitea.altair823.xyz}/api/v1/repos/${GITHUB_REPOSITORY:-altair823-org/claude-session-explorer}/releases" \
+    "${GITHUB_SERVER_URL:-https://gitea.altair823.xyz}/api/v1/repos/${GITHUB_REPOSITORY:-altair823-org/claude-explorer}/releases" \
     --data-binary @<(jq -n --arg t "v$next" --arg n "$next" --arg b "$body" '{tag_name: $t, name: $n, body: $b}') >/dev/null
 echo "릴리스: v$next"

@@ -1,15 +1,15 @@
-# session-explorer
+# explorer
 
 Claude Code 오른쪽 패널에 파일 트리를 보여 주는 mod입니다. 트리 안에 각 폴더에서 실행 중인 Claude Code, Codex 세션과 끝난 대화를 함께 표시합니다. zellij나 tmux 탭 여러 개에 세션이 흩어져 있을 때 어느 폴더에 어떤 세션이 있는지 찾고, 패널에서 바로 그 세션의 창으로 이동할 수 있습니다.
 
 ## 설치
 
 ```
-claude plugin marketplace add altair823/claude-session-explorer
-claude plugin install session-explorer@claude-session-explorer
+claude plugin marketplace add altair823/claude-explorer
+claude plugin install explorer@claude-explorer
 ```
 
-`/session-explorer`로 패널을 엽니다. 직접 닫지 않으면 다음 세션에도 열립니다. git-graph, pr-board 같은 다른 패널과 함께 쓰면 패널 위쪽의 탭을 눌러 바꿉니다.
+`/explorer`로 패널을 엽니다. 직접 닫지 않으면 다음 세션에도 열립니다. git-graph, pr-board 같은 다른 패널과 함께 쓰면 패널 위쪽의 탭을 눌러 바꿉니다.
 
 창 이동과 새 탭 열기는 이 Claude Code가 zellij나 tmux 안에서 실행 중일 때만 동작합니다. 밖에서 실행하면 실행할 명령을 알림으로 보여 줍니다.
 

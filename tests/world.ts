@@ -38,7 +38,7 @@ export function world(on: any, o: Partial<World> = {}): World {
   const w: World = { toasts: [], filled: [], cmds: [], opened: 0, closed: false, shown: true, store: {}, home: '/home/u', root: '/home/u/p', cwd: '/home/u/p', id: 'self', dirs: {}, files: {}, probe: undefined, repos: {}, replies: [], reads: [], now: Date.parse('2026-11-19T09:00:00Z'), ...o }
   const res = (exitCode: number, stdout = '', stderr = '') => ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
   const dirOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
-  on('ui.panes', () => ({ value: w.closed ? [] : [{ id: 'session-explorer', title: '탐색기', isShown: w.shown, isFocused: false }] }))
+  on('ui.panes', () => ({ value: w.closed ? [] : [{ id: 'explorer', title: '탐색기', isShown: w.shown, isFocused: false }] }))
   on('session.root', () => ({ value: w.root }))
   on('session.cwd', () => ({ value: w.cwd }))
   on('session.id', () => ({ value: w.id }))
@@ -69,7 +69,7 @@ export function world(on: any, o: Partial<World> = {}): World {
   })
   on('store.get', (_: unknown, e: { key: string }) => ({ value: w.store[e.key] }))
   on('store.set', (_: unknown, e: { key: string; value: unknown }) => ((w.store[e.key] = e.value), { value: undefined }))
-  on('command.register', () => ({ value: { command: 'session-explorer' } }))
+  on('command.register', () => ({ value: { command: 'explorer' } }))
   on('ui.open', () => (w.opened++, { value: { isPlaced: true } }))
   on('ui.focus', () => ({}))
   on('ui.toast', (_: unknown, e: { text?: string }) => (w.toasts.push(typeof e === 'string' ? e : String(e.text ?? JSON.stringify(e))), { value: undefined }))

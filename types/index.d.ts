@@ -24,6 +24,6 @@ export type Upgrade = { latest: string; ready: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
-    'session-explorer': { view: Shaped<View>; data: Shaped<Data>; upgrade: Shaped<Upgrade> }
+    'explorer': { view: Shaped<View>; data: Shaped<Data>; upgrade: Shaped<Upgrade> }
   }
 }

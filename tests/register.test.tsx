@@ -8,7 +8,7 @@ import type { World } from './world'
 declare const setTimeout: (fn: (value?: unknown) => void, ms: number) => unknown
 
 const PANE = {
-  plugin: 'session-explorer', surface: 'terminal', component: 'Pane', requestId: 'session-explorer',
+  plugin: 'explorer', surface: 'terminal', component: 'Pane', requestId: 'explorer',
   props: { title: '탐색기', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 const settle = () => new Promise(r => setTimeout(r, 30))

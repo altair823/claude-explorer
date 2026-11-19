@@ -5,11 +5,11 @@ import type { EngineInterface } from 'claude-code'
 import type { Upgrade } from '../types'
 
 // 릴리스 태그를 조회할 저장소. 비공개 Gitea라 로그인 정보가 없으면 조회가 실패하고, 그때는 조용히 넘긴다. GitHub 공개 미러를 만들면 그 주소로 바꾼다.
-const UPSTREAM = 'https://github.com/altair823/claude-session-explorer.git'
+const UPSTREAM = 'https://github.com/altair823/claude-explorer.git'
 // 인증이 없을 때 입력을 기다리며 멈추지 않게 한다.
 const QUIET = { GIT_TERMINAL_PROMPT: '0' }
 
-const upgrade = atom({ plugin: 'session-explorer', key: 'upgrade' } as const, { latest: '', ready: false } as Upgrade, { shape: 'upgrade-1' })
+const upgrade = atom({ plugin: 'explorer', key: 'upgrade' } as const, { latest: '', ready: false } as Upgrade, { shape: 'upgrade-1' })
 
 // 설치 캐시 경로(.../plugins/cache/<마켓플레이스>/<플러그인>/<버전>)에서 `플러그인@마켓플레이스`를 꺼낸다.
 export function installedId(root: string): string | undefined {
@@ -71,8 +71,8 @@ export async function checkUpgrade($: EngineInterface) {
   if (known.latest !== latest) {
     $.ui.toast(
       ready
-        ? `session-explorer ${latest}을 받았습니다. 패널에서 u를 누르면 지금 적용하고, 다음 세션부터는 자동으로 씁니다`
-        : `session-explorer ${latest}이 나왔습니다. 패널에서 u를 누르면 업데이트합니다`,
+        ? `explorer ${latest}을 받았습니다. 패널에서 u를 누르면 지금 적용하고, 다음 세션부터는 자동으로 씁니다`
+        : `explorer ${latest}이 나왔습니다. 패널에서 u를 누르면 업데이트합니다`,
     )
   }
 }
