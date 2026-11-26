@@ -336,7 +336,7 @@ test('대화 파일 하나가 사라져 grep이 2로 끝나도 나머지 제목�
   const proj = '/home/u/.claude/projects/-home-u-p'
   const { mem, ui } = await setup($, on, {
     dirs: { '/': [{ name: 'home', kind: 'dir' }], '/home': [{ name: 'u', kind: 'dir' }], '/home/u': [{ name: 'p', kind: 'dir' }], [dir]: [], [proj]: [{ name: 'a1.jsonl', kind: 'file', mtimeMs: 2000 }, { name: 'b2.jsonl', kind: 'file', mtimeMs: 1000 }] },
-    replies: [{ when: a => a[0] === 'grep' && a.some(x => x.includes('aiTitle')), exitCode: 2, stdout: `${proj}/a1.jsonl:"aiTitle":"탐색기 설계"\n`, stderr: 'grep: b2.jsonl: No such file or directory' }],
+    replies: [{ when: a => a[0] === 'grep' && a.some(x => x.includes('customTitle')), exitCode: 2, stdout: '', stderr: 'grep: b2.jsonl: No such file or directory' }, { when: a => a[0] === 'grep' && a.some(x => x.includes('aiTitle')), exitCode: 2, stdout: `${proj}/a1.jsonl:"aiTitle":"탐색기 설계"\n`, stderr: 'grep: b2.jsonl: No such file or directory' }],
   })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await settle()
