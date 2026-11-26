@@ -7,9 +7,9 @@ import { focusSteps, hereOf, launchArgv, newTabSteps, resumeArgv, zellijTabOf } 
 import { PROBE, codexCwd, codexIdOf, liveSessions, parseCodexIndex, parseProbe, parseRegistry, parseTitles, slug } from './sessions'
 import type { Reg } from './sessions'
 import { clip, width } from './text'
-import { buildRows, fitRow, fold, outsideCount, parseStatus, pressKind, scrolled, step, stepped, windowStart } from './tree'
+import { PAST_SHOWN, buildRows, fitRow, fold, join, outsideCount, parentOf, parseStatus, pressKind, scrolled, step, stepped, windowStart } from './tree'
 import type { Msg, Row, Seg } from './tree'
-import { applyUpgrade, checkUpgrade, readVersion, upgradeLabel } from './upgrade'
+import { QUIET, applyUpgrade, checkUpgrade, readVersion, upgradeLabel } from './upgrade'
 
 const PANE = 'explorer'
 const EMPTY_VIEW: View = { top: '', open: [], cur: '', more: [], hidden: false, start: 0 }
@@ -26,9 +26,6 @@ const FAST_MS = 3000
 const PAST_MS = 30_000
 const SLOW_GIT_MS = 30_000
 const GIT_SLOW = 1000
-// 인증이 없을 때 입력을 기다리며 멈추지 않게 한다.
-const QUIET = { GIT_TERMINAL_PROMPT: '0' }
-const SHOWN = 5
 const TITLE_PATTERN = (key: string) => `"${key}":"(\\\\.|[^"\\\\])*"`
 
 let home = ''
@@ -38,8 +35,6 @@ let lastFast = 0
 let lastPast = 0
 let lastRoot = ''
 
-const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
-const parentOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1) || '/'
 // @경로: 공백이 있으면 따옴표로 감싼다
 const mention = (from: string, to: string) => {
@@ -195,7 +190,7 @@ async function readPast($: EngineInterface, v: View, live: Live[]): Promise<Reco
       .map(e => ({ path: `${h}/.claude/projects/${slug(dir)}/${e.name}`, id: e.name.slice(0, -6), mtime: e.mtimeMs }))
       .filter(f => !skip.has(f.id))
       .sort((a, b) => b.mtime - a.mtime)
-    await claudeTitles($, v.more.includes(dir) ? files : files.slice(0, SHOWN))
+    await claudeTitles($, v.more.includes(dir) ? files : files.slice(0, PAST_SHOWN))
     out[dir] = files.map(f => ({ agent: 'claude' as const, id: f.id, cwd: dir, title: titleMemo.get(`${f.path}@${f.mtime}`) ?? shortId(f.id), mtime: f.mtime }))
   }
   const codex = await codexPast($, dirs, skip).catch(() => ({}) as Record<string, Past[]>)

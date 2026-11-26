@@ -14,7 +14,7 @@ export type Msg =
 
 // 한 폴더에서 그리는 항목 수 상한과 끝난 대화 기본 표시 수
 const MAX_ENTRIES = 500
-const PAST_SHOWN = 5
+export const PAST_SHOWN = 5
 
 // porcelain v1 -z 출력. 항목은 `XY 경로\0`이고 R과 C는 뒤에 옛 경로 항목이 하나 더 붙는다.
 export function parseStatus(z: string, root: string): Record<string, string> {
@@ -62,8 +62,8 @@ export function fold(path: string, home: string): string {
   return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 }
 
-const parentOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
-const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
+export const parentOf = (p: string) => (p.lastIndexOf('/') <= 0 ? '/' : p.slice(0, p.lastIndexOf('/')))
+export const join = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const pad = (n: number) => String(n).padStart(2, '0')
 const STATE = { busy: '작업 중', idle: '대기', running: '실행 중' }
 

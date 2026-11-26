@@ -1,4 +1,4 @@
-import type { Agent, Live, Mux } from '../types'
+import type { Live, Mux } from '../types'
 
 // /proc에서 claude와 codex 프로세스를 한 번에 조회하는 POSIX sh 스크립트.
 // 필드는 탭으로 구분한다: pid, comm, start, cwd, fd0, cmd, ZELLIJ_SESSION_NAME, ZELLIJ_PANE_ID, TMUX, TMUX_PANE, rollout
@@ -142,4 +142,3 @@ export function parseCodexIndex(text: string): Record<string, string> {
   return names
 }
 
-export type { Agent }
