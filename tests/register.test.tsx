@@ -331,6 +331,19 @@ test('titles are cached only after grep succeeds', async ($, on) => {
   await ui.unmount()
 })
 
+test('대화 파일 하나가 사라져 grep이 2로 끝나도 나머지 제목은 저장한다', async ($, on) => {
+  const dir = '/home/u/p'
+  const proj = '/home/u/.claude/projects/-home-u-p'
+  const { mem, ui } = await setup($, on, {
+    dirs: { '/': [{ name: 'home', kind: 'dir' }], '/home': [{ name: 'u', kind: 'dir' }], '/home/u': [{ name: 'p', kind: 'dir' }], [dir]: [], [proj]: [{ name: 'a1.jsonl', kind: 'file', mtimeMs: 2000 }, { name: 'b2.jsonl', kind: 'file', mtimeMs: 1000 }] },
+    replies: [{ when: a => a[0] === 'grep' && a.some(x => x.includes('aiTitle')), exitCode: 2, stdout: `${proj}/a1.jsonl:"aiTitle":"탐색기 설계"\n`, stderr: 'grep: b2.jsonl: No such file or directory' }],
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await settle()
+  expect(mem.get('data').past[dir].map((p: any) => [p.id, p.title])).toEqual([['a1', '탐색기 설계'], ['b2', 'b2']])
+  await ui.unmount()
+})
+
 test('a codex file without cwd is read once', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-11-19T09:00:00Z') })
   const f = '/home/u/.codex/sessions/2026/11/15/rollout-2026-11-15T00-53-05-01a1dac3-26fa-7e53-9a7f-a93d3c9865d2.jsonl'

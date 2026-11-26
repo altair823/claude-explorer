@@ -109,7 +109,8 @@ async function claudeTitles($: EngineInterface, files: { path: string; mtime: nu
   // 실패나 타임아웃이면 undefined를 돌려주고, 그때는 캐시에 저장하지 않아 다음에 다시 읽는다.
   const grep = (key: string) =>
     $.process.run(['grep', '-H', '-m1', '-o', '-E', TITLE_PATTERN(key), ...todo.map(f => f.path)], { timeoutMs: 20_000 }).then(
-      r => (r.exitCode === 0 || r.exitCode === 1 ? parseTitles(r.stdout) : undefined),
+      // 종료 코드 2는 파일 일부를 읽지 못했다는 뜻이다. 일치한 출력이 있으면 그 제목은 저장한다.
+      r => (r.exitCode === 0 || r.exitCode === 1 || (r.exitCode === 2 && r.stdout) ? parseTitles(r.stdout) : undefined),
       () => undefined,
     )
   const [custom, ai] = [await grep('customTitle'), await grep('aiTitle')]
